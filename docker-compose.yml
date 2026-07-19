@@ -1,0 +1,73 @@
+version: '3.8'
+
+services:
+  # The Bootnode acts as the initial P2P discovery server
+  bootnode:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: orp_bootnode
+    ports:
+      - "3000:3000"
+      - "8080:8080"
+    environment:
+      - NODE_ROLE=bootnode
+      - P2P_PORT=3000
+      - API_PORT=8080
+    networks:
+      - devnet
+
+  # Validator 1 connects to the Bootnode
+  validator-1:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: orp_validator_1
+    depends_on:
+      - bootnode
+    ports:
+      - "3001:3000"
+      - "8081:8080"
+    environment:
+      - NODE_ROLE=validator
+      - P2P_PORT=3000
+      - API_PORT=8080
+      - BOOTNODE_URL=bootnode:3000
+    networks:
+      - devnet
+
+  # Validator 2 connects to the Bootnode
+  validator-2:
+    build: 
+      context: .
+      dockerfile: Dockerfile
+    container_name: orp_validator_2
+    depends_on:
+      - bootnode
+    ports:
+      - "3002:3000"
+      - "8082:8080"
+    environment:
+      - NODE_ROLE=validator
+      - P2P_PORT=3000
+      - API_PORT=8080
+      - BOOTNODE_URL=bootnode:3000
+    networks:
+      - devnet
+
+  # Block Explorer / Indexer
+  explorer:
+    build:
+      context: .
+      dockerfile: apps/explorer/Dockerfile
+    container_name: orp_explorer
+    ports:
+      - "5000:5000"
+    environment:
+      - NODE_API_URL=http://bootnode:8080
+    networks:
+      - devnet
+
+networks:
+  devnet:
+    driver: bridge

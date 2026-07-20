@@ -340,8 +340,8 @@ We welcome
 
 Please read
 
-- CONTRIBUTING.md
-- CODE_OF_CONDUCT.md
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
 
 ---
 

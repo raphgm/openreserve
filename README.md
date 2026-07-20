@@ -4,7 +4,7 @@
 >
 > An open protocol for moving value as seamlessly as the Internet moves information.
 
-[Documentation] • [Whitepaper] • [Architecture] • [Roadmap] • [Contributing]
+[Documentation](docs/) • [Whitepaper](docs/Whitepaper.md) • [Architecture](docs/Architecture.md) • [Roadmap](ROADMAP.md) • [Contributing](CONTRIBUTING.md)
 
 ---
 

@@ -1,8 +1,6 @@
 package bridge
 
 import (
-	"crypto/ed25519"
-	"encoding/hex"
 	"fmt"
 	"sync"
 	"time"

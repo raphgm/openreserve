@@ -3,7 +3,6 @@ package bridge
 import (
 	"crypto/ed25519"
 	"encoding/hex"
-	"fmt"
 )
 
 // RelayerNode represents an authorized external server that constantly monitors

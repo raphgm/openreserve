@@ -43,7 +43,8 @@ func (eb *EthereumBridge) ProcessLockAndMint(ethTxHash string, receiver string, 
 	// In a real implementation, we would call a specific Mint function on the Ledger
 	// For Phase 14, we will use the GenesisMint mechanism to create the funds out of thin air,
 	// because the equivalent ORP was just locked on Ethereum.
-	eb.LedgerState.GenesisMint(receiver, amount)
+	acc := eb.LedgerState.GetAccount(receiver)
+	acc.AddBalance(amount)
 
 	fmt.Printf("BRIDGE: MINTED %.2f ORP to %s (Proof: Ethereum Tx %s)\\n", amount, receiver, ethTxHash)
 	return nil

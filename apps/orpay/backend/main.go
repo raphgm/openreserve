@@ -88,6 +88,9 @@ type server struct {
 	invoices     *jsonstore.Store[map[string]*Invoice]
 	apps         *jsonstore.Store[map[string]*App]
 	escrows      *jsonstore.Store[map[string]*EscrowRequest]
+	terms        *jsonstore.Store[map[string]*Terms]
+	chats        *jsonstore.Store[map[string][]*EscrowMessage]
+	secret       []byte
 	stateDir     string
 	admins       []types.Address
 	publicURL    string
@@ -118,7 +121,20 @@ func newServer(cfg serverConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	terms, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-terms.json"), map[string]*Terms{})
+	if err != nil {
+		return nil, err
+	}
+	chats, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-escrow-chat.json"), map[string][]*EscrowMessage{})
+	if err != nil {
+		return nil, err
+	}
+	secret, err := loadSecret(cfg.stateDir)
+	if err != nil {
+		return nil, err
+	}
 	s := &server{
+		terms: terms, chats: chats, secret: secret,
 		dir: dir, node: cfg.node, invoices: invoices, apps: apps, escrows: escrows, now: time.Now, stateDir: cfg.stateDir,
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
 		hookClient: webhookClient(cfg.privateHooks),
@@ -192,6 +208,14 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.HandleFunc("GET /api/v1/escrows/{id}", s.apiKeyAuth(s.getAppEscrow))
 	mux.HandleFunc("GET /api/escrow-requests/{id}", s.getEscrowRequest)
 
+	// Escrow terms (no returns: buyers accept terms before funding), and a
+	// private buyer/seller/arbiter conversation with photo evidence.
+	mux.Handle("POST /api/escrow-terms", strict(30, 10, http.HandlerFunc(s.postTerms)))
+	mux.HandleFunc("GET /api/escrow-terms/{hash}", s.getTerms)
+	mux.Handle("POST /api/escrows/{id}/messages", strict(30, 10, reqauth.SignedN(16<<20, s.postEscrowMessage)))
+	mux.HandleFunc("GET /api/escrows/{id}/messages", reqauth.Signed(s.listEscrowMessages))
+	mux.HandleFunc("GET /api/escrow-files/{id}", s.serveEvidence)
+
 	// Public invoice view for the hosted checkout page and receipts.
 	mux.HandleFunc("GET /api/invoices/{id}", s.getInvoice)
 	return mux
@@ -205,8 +229,10 @@ func (s *server) config(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, cfg)
 }
 
-func decodeBody(r *http.Request, v any) error {
-	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, 16<<10))
+func decodeBody(r *http.Request, v any) error { return decodeBodyN(r, v, 16<<10) }
+
+func decodeBodyN(r *http.Request, v any, limit int64) error {
+	dec := json.NewDecoder(http.MaxBytesReader(nil, r.Body, limit))
 	dec.DisallowUnknownFields()
 	return dec.Decode(v)
 }

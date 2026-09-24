@@ -49,6 +49,9 @@ type App struct {
 	LogoType   string    `json:"logo_type,omitempty"`
 	LogoSource string    `json:"logo_source,omitempty"`
 	LogoAt     time.Time `json:"logo_at,omitzero"`
+	// EscrowPolicy is the default terms buyers accept before funding this
+	// app's escrows (e.g. "No returns. Inspect on delivery.").
+	EscrowPolicy string `json:"escrow_policy,omitempty"`
 	// ArbiterAddr settles disputes on this app's escrows (default: Owner).
 	ArbiterAddr types.Address `json:"arbiter_address,omitempty"`
 	CreatedAt   time.Time     `json:"created_at"`
@@ -287,6 +290,7 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 		Settlement *types.Address `json:"settlement_address"`
 		Arbiter    *types.Address `json:"arbiter_address"`
 		BrandName  *string        `json:"brand_name"`
+		Policy     *string        `json:"escrow_policy"`
 		Website    *string        `json:"website"`
 		BrandColor *string        `json:"brand_color"`
 	}
@@ -311,6 +315,12 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 			}
 			a.Website = *req.Website
 			websiteChanged = true
+		}
+		if req.Policy != nil {
+			if len(*req.Policy) > maxTermsLen {
+				return fmt.Errorf("policy must be at most %d characters", maxTermsLen)
+			}
+			a.EscrowPolicy = strings.TrimSpace(*req.Policy)
 		}
 		if req.BrandName != nil {
 			n := strings.TrimSpace(*req.BrandName)

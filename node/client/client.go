@@ -173,3 +173,18 @@ func (c *Client) Escrow(id string) (*Escrow, error) {
 func (c *Client) EscrowsOf(a types.Address) (out []*Escrow, err error) {
 	return out, c.GetJSON("/v1/accounts/"+string(a)+"/escrows", &out)
 }
+
+// EscrowCreateMemo returns the memo of the tx that created an escrow (it
+// carries "terms:<sha256>" when the buyer accepted written terms).
+func (c *Client) EscrowCreateMemo(id string) (string, error) {
+	var r struct {
+		History []HistoryEntry `json:"history"`
+	}
+	if err := c.GetJSON("/v1/escrows/"+id, &r); err != nil {
+		return "", err
+	}
+	if len(r.History) == 0 {
+		return "", nil
+	}
+	return r.History[0].Tx.Memo, nil
+}

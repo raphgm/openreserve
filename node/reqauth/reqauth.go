@@ -38,9 +38,12 @@ func RequestMessage(method, path string, ts int64, body []byte) string {
 
 // signed wraps a handler so it only runs for a valid signed request. The
 // caller's address is available via caller(r).
-func Signed(next http.HandlerFunc) http.HandlerFunc {
+func Signed(next http.HandlerFunc) http.HandlerFunc { return SignedN(16<<10, next) }
+
+// SignedN is Signed with a larger body limit (e.g. for image uploads).
+func SignedN(limit int64, next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		addr, body, err := verifyRequest(w, r)
+		addr, body, err := verifyRequest(w, r, limit)
 		if err != nil {
 			w.Header().Set("Content-Type", "application/json")
 			w.WriteHeader(http.StatusUnauthorized)
@@ -52,7 +55,7 @@ func Signed(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-func verifyRequest(w http.ResponseWriter, r *http.Request) (types.Address, []byte, error) {
+func verifyRequest(w http.ResponseWriter, r *http.Request, limit int64) (types.Address, []byte, error) {
 	addr := types.Address(r.Header.Get("X-ORP-Address"))
 	pub, err := addr.PubKey()
 	if err != nil {
@@ -69,7 +72,7 @@ func verifyRequest(w http.ResponseWriter, r *http.Request) (types.Address, []byt
 	if err != nil {
 		return "", nil, errors.New("invalid X-ORP-Sig")
 	}
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 16<<10))
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, limit))
 	if err != nil {
 		return "", nil, err
 	}

@@ -43,6 +43,8 @@ type EscrowRequest struct {
 	Description string         `json:"description"`
 	Reference   string         `json:"reference,omitempty"`
 	ReturnURL   string         `json:"return_url,omitempty"`
+	Policy      string         `json:"policy,omitempty"`     // terms the buyer must accept
+	TermsHash   string         `json:"terms_hash,omitempty"` // sha256 of Policy
 	Status      string         `json:"status"`
 	CreatedAt   time.Time      `json:"created_at"`
 	ExpiresAt   time.Time      `json:"expires_at"` // funding deadline
@@ -83,6 +85,7 @@ func (s *server) createEscrowRequest(w http.ResponseWriter, r *http.Request) {
 		Reference   string `json:"reference"`
 		ReturnURL   string `json:"return_url"`
 		FundWithinH int    `json:"fund_within_hours"`
+		Policy      string `json:"policy"` // defaults to the app's escrow policy
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -160,8 +163,20 @@ func (s *server) createEscrowRequest(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 	}
+	policy := strings.TrimSpace(req.Policy)
+	if policy == "" {
+		policy = app.EscrowPolicy
+	}
+	var termsHash string
+	if policy != "" {
+		if termsHash, err = s.storeTerms(policy); err != nil {
+			bad("policy: %v", err)
+			return
+		}
+	}
 	now := s.now()
 	er := &EscrowRequest{
+		Policy: policy, TermsHash: termsHash,
 		ID: "esr_" + randToken("", 10), AppID: app.ID, Seller: seller, Arbiter: arbiter, Asset: asset,
 		Milestones: ms, ShipByDays: req.ShipByDays, ReviewDays: req.ReviewDays, Description: req.Description,
 		Reference: req.Reference, ReturnURL: req.ReturnURL, Status: EscrowAwaiting, CreatedAt: now,
@@ -185,6 +200,9 @@ func (s *server) escrowView(er *EscrowRequest, forApp bool) map[string]any {
 		"ship_by_days": er.ShipByDays, "review_days": er.ReviewDays, "description": er.Description,
 		"status": er.Status, "created_at": er.CreatedAt, "expires_at": er.ExpiresAt,
 		"funding_url": s.publicURL + "/?escrow_request=" + er.ID,
+	}
+	if er.Policy != "" {
+		v["policy"], v["terms_hash"], v["terms_memo"] = er.Policy, er.TermsHash, "terms:"+er.TermsHash
 	}
 	if er.EscrowID != "" {
 		v["escrow_id"] = er.EscrowID
@@ -320,6 +338,16 @@ func (s *server) findFunding(er *EscrowRequest) (*client.Escrow, error) {
 	}
 	for _, e := range list {
 		if e.Ref == er.ID && e.Arbiter == er.Arbiter && e.Asset == er.Asset && slices.Equal(e.Milestones, want) {
+			// The buyer must have accepted these exact terms in the create tx.
+			if er.TermsHash != "" {
+				memo, err := s.node.EscrowCreateMemo(e.ID)
+				if err != nil {
+					return nil, err
+				}
+				if memo != "terms:"+er.TermsHash {
+					continue
+				}
+			}
 			return e, nil
 		}
 	}

@@ -73,17 +73,43 @@ func ParseHash(s string) (Hash, error) {
 	return h, err
 }
 
-// Tx transfers Amount from From to To. Fee is burned. Nonce must equal the
-// sender's current nonce, which prevents replay and orders a sender's txs.
+// Tx is either a transfer of Amount from From to To, or, when Pool is set,
+// a savings-pool operation. Fee is burned. Nonce must equal the sender's
+// current nonce, which prevents replay and orders a sender's txs.
 type Tx struct {
 	ChainID string   `json:"chain_id"`
 	From    Address  `json:"from"`
-	To      Address  `json:"to"`
+	To      Address  `json:"to,omitempty"`
 	Amount  Amount   `json:"amount"`
 	Fee     Amount   `json:"fee"`
 	Nonce   uint64   `json:"nonce"`
 	Memo    string   `json:"memo,omitempty"`
+	Pool    *PoolOp  `json:"pool,omitempty"`
 	Sig     HexBytes `json:"sig"`
+}
+
+// Pool operations. A savings pool (ajo/esusu) has a fixed member order and
+// contribution. Each round every member contributes; once all have, the
+// round's member claims the pot, and the next round begins.
+const (
+	PoolCreate     = "create"
+	PoolJoin       = "join"
+	PoolContribute = "contribute"
+	PoolClaim      = "claim"
+
+	MaxPoolMembers = 50
+	MaxPoolName    = 64
+)
+
+// PoolOp is the pool-specific part of a Tx.
+type PoolOp struct {
+	Op string `json:"op"`
+	// ID names the pool for join/contribute/claim. A pool's ID is the ID of
+	// the tx that created it.
+	ID           Hash      `json:"id,omitzero"`
+	Name         string    `json:"name,omitempty"`
+	Members      []Address `json:"members,omitempty"` // payout order
+	Contribution Amount    `json:"contribution,omitempty"`
 }
 
 // HexBytes is a byte slice hex encoded in JSON.
@@ -112,9 +138,14 @@ func (e *encoder) raw(b []byte) { e.buf = append(e.buf, b...) }
 
 // SignBytes is the canonical message a sender signs. It is domain separated
 // so a transaction signature can never be reused as a block signature.
+// Plain transfers keep the v1 encoding; pool operations use v2.
 func (tx *Tx) SignBytes() []byte {
 	e := &encoder{}
-	e.str("openreserve/tx/v1")
+	if tx.Pool == nil {
+		e.str("openreserve/tx/v1")
+	} else {
+		e.str("openreserve/tx/v2")
+	}
 	e.str(tx.ChainID)
 	e.str(string(tx.From))
 	e.str(string(tx.To))
@@ -122,6 +153,16 @@ func (tx *Tx) SignBytes() []byte {
 	e.u64(tx.Fee)
 	e.u64(tx.Nonce)
 	e.str(tx.Memo)
+	if p := tx.Pool; p != nil {
+		e.str(p.Op)
+		e.raw(p.ID[:])
+		e.str(p.Name)
+		e.u64(uint64(len(p.Members)))
+		for _, m := range p.Members {
+			e.str(string(m))
+		}
+		e.u64(p.Contribution)
+	}
 	return e.buf
 }
 
@@ -142,6 +183,24 @@ func (tx *Tx) CheckStateless(chainID string) error {
 	if err := tx.From.Validate(); err != nil {
 		return fmt.Errorf("from: %w", err)
 	}
+	if len(tx.Memo) > MaxMemoLen {
+		return fmt.Errorf("memo longer than %d bytes", MaxMemoLen)
+	}
+	if tx.Pool == nil {
+		if err := tx.checkTransfer(); err != nil {
+			return err
+		}
+	} else if err := tx.checkPoolOp(); err != nil {
+		return err
+	}
+	pub, _ := tx.From.PubKey()
+	if len(tx.Sig) != ed25519.SignatureSize || !ed25519.Verify(pub, tx.SignBytes(), tx.Sig) {
+		return errors.New("invalid signature")
+	}
+	return nil
+}
+
+func (tx *Tx) checkTransfer() error {
 	if err := tx.To.Validate(); err != nil {
 		return fmt.Errorf("to: %w", err)
 	}
@@ -154,12 +213,53 @@ func (tx *Tx) CheckStateless(chainID string) error {
 	if tx.Amount+tx.Fee < tx.Amount {
 		return errors.New("amount + fee overflows")
 	}
-	if len(tx.Memo) > MaxMemoLen {
-		return fmt.Errorf("memo longer than %d bytes", MaxMemoLen)
+	return nil
+}
+
+func (tx *Tx) checkPoolOp() error {
+	p := tx.Pool
+	if tx.To != "" || tx.Amount != 0 {
+		return errors.New("pool operations must not set to or amount")
 	}
-	pub, _ := tx.From.PubKey()
-	if len(tx.Sig) != ed25519.SignatureSize || !ed25519.Verify(pub, tx.SignBytes(), tx.Sig) {
-		return errors.New("invalid signature")
+	switch p.Op {
+	case PoolCreate:
+		if p.ID != (Hash{}) {
+			return errors.New("create must not set id")
+		}
+		if n := len([]rune(p.Name)); n == 0 || len(p.Name) > MaxPoolName {
+			return fmt.Errorf("pool name must be 1-%d bytes", MaxPoolName)
+		}
+		if len(p.Members) < 2 || len(p.Members) > MaxPoolMembers {
+			return fmt.Errorf("a pool needs 2-%d members", MaxPoolMembers)
+		}
+		seen := map[Address]bool{}
+		for _, m := range p.Members {
+			if err := m.Validate(); err != nil {
+				return fmt.Errorf("member: %w", err)
+			}
+			if seen[m] {
+				return fmt.Errorf("member %s listed twice", m)
+			}
+			seen[m] = true
+		}
+		if !seen[tx.From] {
+			return errors.New("the creator must be a member")
+		}
+		if p.Contribution == 0 {
+			return errors.New("contribution must be positive")
+		}
+		if p.Contribution > ^uint64(0)/uint64(len(p.Members)) {
+			return errors.New("contribution too large")
+		}
+	case PoolJoin, PoolContribute, PoolClaim:
+		if p.ID == (Hash{}) {
+			return errors.New("pool id required")
+		}
+		if p.Name != "" || len(p.Members) != 0 || p.Contribution != 0 {
+			return fmt.Errorf("%s takes only a pool id", p.Op)
+		}
+	default:
+		return fmt.Errorf("unknown pool op %q", p.Op)
 	}
 	return nil
 }

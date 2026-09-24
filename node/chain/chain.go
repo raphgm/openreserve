@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 
@@ -45,6 +47,7 @@ type Chain struct {
 	blocks  []*types.Block // blocks[i] has height i+1
 	txIndex map[types.Hash]TxLocation
 	byAddr  map[types.Address][]TxLocation // txs touching each address, oldest first
+	byPool  map[types.Hash][]TxLocation    // txs for each pool, oldest first
 	mempool map[types.Hash]pendingTx
 	log     *blockLog
 	notify  chan struct{} // closed and replaced whenever a block is committed
@@ -65,6 +68,7 @@ func Open(dataDir string, g *Genesis) (*Chain, error) {
 		state:   st,
 		txIndex: map[types.Hash]TxLocation{},
 		byAddr:  map[types.Address][]TxLocation{},
+		byPool:  map[types.Hash][]TxLocation{},
 		mempool: map[types.Hash]pendingTx{},
 		notify:  make(chan struct{}),
 	}
@@ -113,7 +117,7 @@ func (c *Chain) Submit(tx *types.Tx) (types.Hash, error) {
 	// Future-nonce txs skip the balance check above, so require the sender to
 	// hold enough committed funds for everything it has pending. This keeps
 	// unfunded keys from filling the mempool.
-	need := tx.Amount + tx.Fee
+	need := c.state.Cost(tx)
 	for _, p := range c.mempool {
 		if p.tx.From != tx.From {
 			continue
@@ -121,7 +125,7 @@ func (c *Chain) Submit(tx *types.Tx) (types.Hash, error) {
 		if p.tx.Nonce == tx.Nonce {
 			return id, fmt.Errorf("a pending tx already uses nonce %d", tx.Nonce)
 		}
-		need += p.tx.Amount + p.tx.Fee
+		need += c.state.Cost(p.tx)
 	}
 	if need > acc.Balance {
 		return id, fmt.Errorf("%w: pending txs need %s ORP", ledger.ErrInsufficient, types.FormatAmount(need))
@@ -274,7 +278,16 @@ func (c *Chain) commit(b *types.Block, next *ledger.State) {
 		loc := TxLocation{Height: b.Header.Height, Index: i}
 		c.txIndex[id] = loc
 		c.byAddr[tx.From] = append(c.byAddr[tx.From], loc)
-		c.byAddr[tx.To] = append(c.byAddr[tx.To], loc)
+		if tx.To != "" {
+			c.byAddr[tx.To] = append(c.byAddr[tx.To], loc)
+		}
+		if tx.Pool != nil {
+			pid := tx.Pool.ID
+			if tx.Pool.Op == types.PoolCreate {
+				pid = id
+			}
+			c.byPool[pid] = append(c.byPool[pid], loc)
+		}
 		delete(c.mempool, id)
 	}
 	// Drop pending txs whose nonce was consumed by this block.
@@ -408,4 +421,39 @@ func (c *Chain) Updated() <-chan struct{} {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.notify
+}
+
+// Pool returns a pool's current state, or nil.
+func (c *Chain) Pool(id types.Hash) *ledger.Pool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.state.Pool(id)
+}
+
+// PoolHistory returns every committed tx for a pool, oldest first: the full
+// audit trail of joins, contributions and claims.
+func (c *Chain) PoolHistory(id types.Hash) []HistoryEntry {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := []HistoryEntry{}
+	for _, loc := range c.byPool[id] {
+		b := c.blocks[loc.Height-1]
+		tx := b.Txs[loc.Index]
+		out = append(out, HistoryEntry{Tx: tx, ID: tx.ID(), Height: b.Header.Height, Time: b.Header.Time})
+	}
+	return out
+}
+
+// PoolsOf returns the pools an address is a member of.
+func (c *Chain) PoolsOf(a types.Address) []*ledger.Pool {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := []*ledger.Pool{}
+	for _, p := range c.state.Pools {
+		if slices.Contains(p.Members, a) {
+			out = append(out, c.state.Pool(p.ID))
+		}
+	}
+	slices.SortFunc(out, func(x, y *ledger.Pool) int { return strings.Compare(x.Name, y.Name) })
+	return out
 }

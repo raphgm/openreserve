@@ -26,6 +26,8 @@ func Handler(c *chain.Chain) http.Handler {
 	mux.HandleFunc("GET /v1/blocks/{height}", s.block)
 	mux.HandleFunc("GET /v1/txs/{id}", s.tx)
 	mux.HandleFunc("POST /v1/txs", s.submit)
+	mux.HandleFunc("GET /v1/pools/{id}", s.pool)
+	mux.HandleFunc("GET /v1/accounts/{addr}/pools", s.accountPools)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok\n")) })
 	return cors(mux)
 }
@@ -141,6 +143,31 @@ func (s *server) submit(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{"id": id, "status": "pending"})
+}
+
+// pool returns a pool's state plus its full on-chain history, so every
+// member can audit who paid, who has received and who is next.
+func (s *server) pool(w http.ResponseWriter, r *http.Request) {
+	id, err := types.ParseHash(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	p := s.c.Pool(id)
+	if p == nil {
+		writeErr(w, http.StatusNotFound, errors.New("pool not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pool": p, "pot": p.Pot(), "history": s.c.PoolHistory(id)})
+}
+
+func (s *server) accountPools(w http.ResponseWriter, r *http.Request) {
+	addr := types.Address(r.PathValue("addr"))
+	if err := addr.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.c.PoolsOf(addr))
 }
 
 func queryInt(r *http.Request, key string, def, max int) int {

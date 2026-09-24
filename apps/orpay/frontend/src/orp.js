@@ -274,6 +274,10 @@ async function signedCall(seed, method, path, body) {
 }
 
 export const api = {
+  invites: (seed) => signedCall(seed, 'GET', '/api/ajo-invites'),
+  invite: (id) => call(`/api/ajo-invites/${encodeURIComponent(id)}`),
+  createInvite: (seed, body) => signedCall(seed, 'POST', '/api/ajo-invites', body),
+  inviteAction: (seed, id, action, body) => signedCall(seed, 'POST', `/api/ajo-invites/${id}/${action}`, body),
   escrowRequest: (id) => call(`/api/escrow-requests/${encodeURIComponent(id)}`),
   saveTerms: (text) => call('/api/escrow-terms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }),
   terms: (hash) => call(`/api/escrow-terms/${hash}`),

@@ -1,7 +1,8 @@
 // Savings pools (ajo/esusu). Everything shown here is read from the chain:
 // the pool's balance, who has paid this round, who has received their pot,
 // who is next, and a timeline of every join, contribution and claim.
-import { assetLabel, formatMoney, node, parseAmount, poolOp, waitForCommit } from './orp.js'
+import { api, assetLabel, formatMoney, node, parseAmount, poolOp, waitForCommit } from './orp.js'
+import { renderSVG } from 'uqr'
 
 let ctx // { state, $, esc, short, toast, nameOf, resolveRecipient, root }
 
@@ -50,6 +51,17 @@ export async function renderPools() {
       <ul class="pool-list" id="pool-list"><li class="empty">Loading…</li></ul>
     </section>`
   ctx.$('#new-pool').onclick = renderCreate
+  api.invites(ctx.state.seed).then((list) => {
+    const ul = ctx.$('#pool-list')
+    if (!ul || !list.length) return
+    const rows = list.map((d) => `<li><button class="pool-row" data-invite="${d.id}">
+      <span class="pool-avatar">✉</span>
+      <span class="who"><strong>${ctx.esc(d.name)}</strong><small>Gathering members · ${d.members.length}/${d.slots} joined</small></span>
+      <span class="chip-s info">Invite</span></button></li>`).join('')
+    ul.insertAdjacentHTML('afterbegin', rows)
+    ul.querySelector('.empty')?.remove()
+    ul.querySelectorAll('[data-invite]').forEach((b) => (b.onclick = () => renderInvite(b.dataset.invite)))
+  }).catch(() => {})
   let pools
   try {
     pools = await node.pools(ctx.state.address)
@@ -106,7 +118,9 @@ function renderCreate() {
           <label class="check deposit-check"><input type="checkbox" id="deposit" checked> Members pay one contribution as a deposit</label>
         </div>
         <p class="hint">With due dates, the member whose turn it is can collect once the round is due, even if someone hasn't paid. A missed payment is covered from that member's deposit and recorded for everyone to see. Unused deposits are returned at the end.</p>
-        <label>Members in payout order
+        <label class="check"><input type="checkbox" id="by-link" checked> Invite people with a link (they join themselves)</label>
+        <label id="slots-row">How many members, including you?<input id="slots" type="number" min="2" max="50" value="5"></label>
+        <label id="members-row" hidden>Members in payout order
           <textarea id="members" rows="5" placeholder="One per line: @username or address&#10;The first person receives the first pot."></textarea>
         </label>
         <p class="hint">You are added as the first member unless you list yourself. Each member must join before the pool starts.</p>
@@ -115,6 +129,10 @@ function renderCreate() {
       </form>
     </section>`
   ctx.$('#back').onclick = renderPools
+  ctx.$('#by-link').onchange = (e) => {
+    ctx.$('#slots-row').hidden = !e.target.checked
+    ctx.$('#members-row').hidden = e.target.checked
+  }
   let asset = ctx.currencies()[0]
   const setAsset = (a) => {
     asset = a
@@ -131,6 +149,16 @@ function renderCreate() {
       const contribution = parseAmount(ctx.$('#amount').value.replace(/,/g, ''))
       if (asset === 'NGN' && contribution % 10_000n !== 0n) throw new Error('Naira amounts can have at most 2 decimals.')
       if (contribution === 0n) throw new Error('Contribution must be more than 0.')
+      const roundSecsPick = Number(ctx.$('#cadence').value)
+      if (ctx.$('#by-link').checked) {
+        btn.disabled = true
+        btn.textContent = 'Creating invite…'
+        const d = await api.createInvite(ctx.state.seed, {
+          name: ctx.$('#name').value.trim(), asset, contribution: Number(contribution), round_secs: roundSecsPick,
+          deposit: roundSecsPick && ctx.$('#deposit').checked ? Number(contribution) : 0, slots: Number(ctx.$('#slots').value),
+        })
+        return renderInvite(d.id)
+      }
       const refs = ctx.$('#members').value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
       const members = []
       for (const ref of refs) {
@@ -327,3 +355,95 @@ export async function renderPool(id, preloaded) {
   )
 }
 
+
+// Ajo invite: share a link/QR; people join; the organiser starts the pool.
+export async function renderInvite(id) {
+  const root = ctx.root()
+  let d
+  try {
+    d = await api.invite(id)
+  } catch (err) {
+    root.innerHTML = `<section class="card"><h2>Invite not found</h2><p class="error">${ctx.esc(err.message)}</p></section>`
+    return
+  }
+  if (d.status === 'started' && d.pool_id) return renderPool(d.pool_id)
+  await ctx.resolveNames(d.members)
+  const me = ctx.state.address
+  const joined = d.members.includes(me)
+  const organizer = d.organizer === me
+  const money = (x) => formatMoney(x, d.asset ?? '')
+  root.innerHTML = `
+    <section class="card pool-hero">
+      <button class="link back light" id="back">← Pools</button>
+      <div class="pool-title"><h2>${ctx.esc(d.name)}</h2><span class="chip-s info">Invite</span></div>
+      <p class="label">Each member pays</p>
+      <p class="amount">${money(d.contribution)}</p>
+      <div class="pool-stats">
+        <div><span>Members</span><strong>${d.members.length} of ${d.slots}</strong></div>
+        <div><span>Rounds</span><strong>${d.round_secs ? cadence(d.round_secs) : 'no due dates'}</strong></div>
+        <div><span>Deposit</span><strong>${d.deposit ? money(d.deposit) : 'none'}</strong></div>
+      </div>
+    </section>
+    <section class="card">
+      ${organizer || joined ? `
+        <div class="qr-wrap"><div class="qr" id="qr" role="img" aria-label="Invite QR code"></div>
+        <p class="muted small-text">Share this so people can join with their ORPay wallet.</p></div>
+        <div class="row"><button class="primary" id="share">Share invite</button><button class="ghost" id="copy">Copy link</button></div>` : ''}
+      ${!joined ? `<p class="muted">${label(d.organizer)} invited you to a savings pool. You'll pay ${money(d.contribution)} each round${d.deposit ? ` plus a ${money(d.deposit)} deposit when it starts` : ''}, and receive the whole pot on your turn.</p>
+        <button class="primary" id="join" ${d.members.length >= d.slots ? 'disabled' : ''}>${d.members.length >= d.slots ? 'This pool is full' : 'Join this ajo'}</button>` : ''}
+      ${joined && !organizer ? `<p class="muted small-text">You're in. When ${label(d.organizer)} starts the pool you'll confirm your place${d.deposit ? ' and pay your deposit' : ''}.</p><button class="link" id="leave">Leave</button>` : ''}
+      <p class="error" id="err"></p>
+    </section>
+    <section class="card">
+      <h2>Payout order</h2>
+      <ul class="members">${d.members.map((m, i) => `<li class="${m === me ? 'me' : ''}"><span class="pos">${i + 1}</span><span class="who"><strong>${label(m)}</strong>${m === d.organizer ? '<span class="small-text muted">Organiser</span>' : ''}</span>
+        ${organizer && d.members.length > 1 ? `<span class="row-actions"><button class="ghost small" data-up="${i}" ${i === 0 ? 'disabled' : ''}>↑</button><button class="ghost small" data-down="${i}" ${i === d.members.length - 1 ? 'disabled' : ''}>↓</button></span>` : ''}</li>`).join('')}</ul>
+      ${organizer ? `<button class="primary" id="start" ${d.members.length < 2 ? 'disabled' : ''}>Start the pool with ${d.members.length} member${d.members.length === 1 ? '' : 's'}</button>
+        <p class="hint">Starting puts the pool on-chain with this order. Members then confirm${d.deposit ? ' and pay their deposit' : ''}.</p>` : ''}
+    </section>`
+  ctx.$('#back').onclick = renderPools
+  const qr = ctx.$('#qr')
+  if (qr) qr.innerHTML = renderSVG(d.invite_url, { border: 1 })
+  const share = ctx.$('#share')
+  if (share)
+    share.onclick = async () => {
+      if (navigator.share) await navigator.share({ title: `Join ${d.name} on ORPay`, url: d.invite_url }).catch(() => {})
+      else navigator.clipboard.writeText(d.invite_url).then(() => ctx.toast('Invite link copied'))
+    }
+  const copy = ctx.$('#copy')
+  if (copy) copy.onclick = () => navigator.clipboard.writeText(d.invite_url).then(() => ctx.toast('Invite link copied'))
+  const act = async (btn, fn) => {
+    btn.disabled = true
+    try {
+      await fn()
+      renderInvite(id)
+    } catch (err) {
+      ctx.$('#err').textContent = err.message
+      btn.disabled = false
+    }
+  }
+  const join = ctx.$('#join')
+  if (join) join.onclick = () => (ctx.state.seed ? act(join, () => api.inviteAction(ctx.state.seed, id, 'join')) : ctx.requireWallet())
+  const leave = ctx.$('#leave')
+  if (leave) leave.onclick = () => act(leave, () => api.inviteAction(ctx.state.seed, id, 'leave'))
+  const move = (i, j) => {
+    const order = d.members.slice()
+    ;[order[i], order[j]] = [order[j], order[i]]
+    return api.inviteAction(ctx.state.seed, id, 'order', { members: order })
+  }
+  root.querySelectorAll('[data-up]').forEach((b) => (b.onclick = () => act(b, () => move(+b.dataset.up, +b.dataset.up - 1))))
+  root.querySelectorAll('[data-down]').forEach((b) => (b.onclick = () => act(b, () => move(+b.dataset.down, +b.dataset.down + 1))))
+  const start = ctx.$('#start')
+  if (start)
+    start.onclick = () =>
+      act(start, async () => {
+        start.textContent = 'Starting…'
+        const poolId = await poolOp({
+          seed: ctx.state.seed, op: 'create', name: d.name, members: d.members, contribution: BigInt(d.contribution),
+          asset: d.asset ?? '', roundSecs: d.round_secs ?? 0, deposit: BigInt(d.deposit ?? 0),
+        })
+        await waitForCommit(poolId)
+        await api.inviteAction(ctx.state.seed, id, 'started', { pool_id: poolId })
+        ctx.toast('Pool started. Members can now confirm their place.')
+      })
+}

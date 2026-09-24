@@ -90,6 +90,7 @@ type server struct {
 	escrows      *jsonstore.Store[map[string]*EscrowRequest]
 	terms        *jsonstore.Store[map[string]*Terms]
 	chats        *jsonstore.Store[map[string][]*EscrowMessage]
+	drafts       *jsonstore.Store[map[string]*PoolDraft]
 	secret       []byte
 	stateDir     string
 	admins       []types.Address
@@ -129,12 +130,16 @@ func newServer(cfg serverConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	drafts, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-ajo-invites.json"), map[string]*PoolDraft{})
+	if err != nil {
+		return nil, err
+	}
 	secret, err := loadSecret(cfg.stateDir)
 	if err != nil {
 		return nil, err
 	}
 	s := &server{
-		terms: terms, chats: chats, secret: secret,
+		terms: terms, chats: chats, secret: secret, drafts: drafts,
 		dir: dir, node: cfg.node, invoices: invoices, apps: apps, escrows: escrows, now: time.Now, stateDir: cfg.stateDir,
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
 		hookClient: webhookClient(cfg.privateHooks),
@@ -215,6 +220,15 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/escrows/{id}/messages", strict(30, 10, reqauth.SignedN(16<<20, s.postEscrowMessage)))
 	mux.HandleFunc("GET /api/escrows/{id}/messages", reqauth.Signed(s.listEscrowMessages))
 	mux.HandleFunc("GET /api/escrow-files/{id}", s.serveEvidence)
+
+	// Ajo invite links: join a pool before it exists on-chain.
+	mux.Handle("POST /api/ajo-invites", strict(20, 5, reqauth.Signed(s.createDraft)))
+	mux.HandleFunc("GET /api/ajo-invites", reqauth.Signed(s.myDrafts))
+	mux.HandleFunc("GET /api/ajo-invites/{id}", s.getDraft)
+	mux.Handle("POST /api/ajo-invites/{id}/join", strict(30, 10, reqauth.Signed(s.joinDraft)))
+	mux.Handle("POST /api/ajo-invites/{id}/leave", strict(30, 10, reqauth.Signed(s.leaveDraft)))
+	mux.Handle("POST /api/ajo-invites/{id}/order", strict(30, 10, reqauth.Signed(s.orderDraft)))
+	mux.Handle("POST /api/ajo-invites/{id}/started", strict(30, 10, reqauth.Signed(s.startedDraft)))
 
 	// Public invoice view for the hosted checkout page and receipts.
 	mux.HandleFunc("GET /api/invoices/{id}", s.getInvoice)

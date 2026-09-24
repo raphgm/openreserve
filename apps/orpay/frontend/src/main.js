@@ -4,7 +4,7 @@ import {
   payLink, readPayLink, registerMessage, seedToWords, send, signMessage, waitForCommit, wordsToSeed,
 } from './orp.js'
 import { renderSVG } from 'uqr'
-import { duePools, initPools, renderPool, renderPools } from './pools.js'
+import { duePools, initPools, renderInvite, renderPool, renderPools } from './pools.js'
 import { initCheckout, renderCheckout } from './checkout.js'
 import { initDevelopers, renderDevelopers } from './developers.js'
 import { confirmDeposit, initMoney, renderAddMoney, renderWithdraw } from './money.js'
@@ -43,6 +43,8 @@ const PENDING = 'orpay.pending'
       ? { escrow: q.get('escrow') }
       : q.get('escrow_request')
       ? { escrow_request: q.get('escrow_request') }
+      : q.get('ajo_invite')
+      ? { ajo_invite: q.get('ajo_invite') }
       : readPayLink()
   if (req) {
     sessionStorage.setItem(PENDING, JSON.stringify(req))
@@ -206,6 +208,7 @@ async function openWallet(seed, address) {
       else if (req.pool) showView('pools', () => renderPool(req.pool))
       else if (req.escrow) showView('escrow', () => renderEscrow(req.escrow))
       else if (req.escrow_request) showView('escrow', () => renderFundRequest(req.escrow_request))
+      else if (req.ajo_invite) showView('pools', () => renderInvite(req.ajo_invite))
       else renderSend(req)
     } catch {}
   }

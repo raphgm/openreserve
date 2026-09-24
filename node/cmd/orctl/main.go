@@ -3,6 +3,7 @@ package main
 
 import (
 	"bytes"
+	"crypto/ed25519"
 	"encoding/json"
 	"errors"
 	"flag"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/openreserve/node/chain"
 	"github.com/openreserve/node/keys"
+	"github.com/openreserve/node/mnemonic"
 	"github.com/openreserve/node/types"
 )
 
@@ -23,6 +25,9 @@ const usage = `orctl - OpenReserve wallet
 Usage:
   orctl keygen   -key FILE
   orctl address  -key FILE
+  orctl words    -key FILE              show the 24 recovery words for a key
+  orctl restore  -key FILE              create a key file from recovery words (read from stdin)
+  orctl export-seed -key FILE           print the raw seed, e.g. for ORP_PROPOSER_SEED
   orctl genesis  -chain-id ID -proposer ADDR [-min-fee ORP] [-alloc ADDR=ORP ...] > genesis.json
   orctl status
   orctl balance  ADDR | -key FILE
@@ -46,6 +51,12 @@ func main() {
 		err = keygen(args)
 	case "address":
 		err = address(args)
+	case "words":
+		err = wordsCmd(args)
+	case "restore":
+		err = restore(args)
+	case "export-seed":
+		err = exportSeed(args)
 	case "genesis":
 		err = genesis(args)
 	case "status":
@@ -101,6 +112,65 @@ func address(args []string) error {
 		return err
 	}
 	fmt.Println(keys.Address(priv))
+	return nil
+}
+
+func loadKeyFlag(name string, args []string) (ed25519.PrivateKey, error) {
+	fs := flag.NewFlagSet(name, flag.ExitOnError)
+	keyPath := fs.String("key", "", "key file")
+	fs.Parse(args)
+	return keys.Load(*keyPath)
+}
+
+func wordsCmd(args []string) error {
+	priv, err := loadKeyFlag("words", args)
+	if err != nil {
+		return err
+	}
+	phrase, err := mnemonic.Encode(priv.Seed())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintln(os.Stderr, "Anyone with these words can spend this wallet. Write them down; do not share them.")
+	for i, w := range strings.Fields(phrase) {
+		fmt.Printf("%2d. %-10s", i+1, w)
+		if i%4 == 3 {
+			fmt.Println()
+		}
+	}
+	return nil
+}
+
+func restore(args []string) error {
+	fs := flag.NewFlagSet("restore", flag.ExitOnError)
+	keyPath := fs.String("key", "", "key file to create")
+	fs.Parse(args)
+	if *keyPath == "" {
+		return errors.New("-key is required")
+	}
+	fmt.Fprintln(os.Stderr, "Enter the 24 recovery words, then press Ctrl-D:")
+	in, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return err
+	}
+	seed, err := mnemonic.Decode(string(in))
+	if err != nil {
+		return err
+	}
+	priv := ed25519.NewKeyFromSeed(seed)
+	if err := keys.Write(*keyPath, priv); err != nil {
+		return err
+	}
+	fmt.Println(keys.Address(priv))
+	return nil
+}
+
+func exportSeed(args []string) error {
+	priv, err := loadKeyFlag("export-seed", args)
+	if err != nil {
+		return err
+	}
+	fmt.Println(keys.SeedHex(priv))
 	return nil
 }
 

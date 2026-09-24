@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 
 	"github.com/openreserve/node/types"
 )
@@ -25,24 +26,34 @@ func Generate(path string) (ed25519.PrivateKey, error) {
 	if err != nil {
 		return nil, err
 	}
-	kf := keyFile{
-		Address: types.AddressFromPubKey(priv.Public().(ed25519.PublicKey)),
-		Seed:    hex.EncodeToString(priv.Seed()),
-	}
+	return priv, Write(path, priv)
+}
+
+// Write saves a key to a new file with 0600 permissions.
+func Write(path string, priv ed25519.PrivateKey) error {
+	kf := keyFile{Address: Address(priv), Seed: SeedHex(priv)}
 	data, _ := json.MarshalIndent(kf, "", "  ")
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if _, err := f.Write(append(data, '\n')); err != nil {
 		f.Close()
-		return nil, err
+		return err
 	}
-	return priv, f.Close()
+	return f.Close()
 }
 
-// Load reads a key written by Generate.
+// Load reads a key written by Generate. It refuses files that other users
+// can read: a leaked proposer or faucet key cannot be revoked.
 func Load(path string) (ed25519.PrivateKey, error) {
+	info, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if info.Mode().Perm()&0o077 != 0 {
+		return nil, fmt.Errorf("key file %s is readable by other users (mode %04o); run: chmod 600 %s", path, info.Mode().Perm(), path)
+	}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -51,16 +62,44 @@ func Load(path string) (ed25519.PrivateKey, error) {
 	if err := json.Unmarshal(data, &kf); err != nil {
 		return nil, fmt.Errorf("key file %s: %w", path, err)
 	}
-	seed, err := hex.DecodeString(kf.Seed)
-	if err != nil || len(seed) != ed25519.SeedSize {
-		return nil, fmt.Errorf("key file %s: bad seed", path)
+	priv, err := FromSeedHex(kf.Seed)
+	if err != nil {
+		return nil, fmt.Errorf("key file %s: %w", path, err)
 	}
-	priv := ed25519.NewKeyFromSeed(seed)
-	if types.AddressFromPubKey(priv.Public().(ed25519.PublicKey)) != kf.Address {
+	if Address(priv) != kf.Address {
 		return nil, errors.New("key file address does not match seed")
 	}
 	return priv, nil
 }
+
+// FromSeedHex builds a key from a hex-encoded 32-byte seed.
+func FromSeedHex(s string) (ed25519.PrivateKey, error) {
+	seed, err := hex.DecodeString(strings.TrimSpace(s))
+	if err != nil || len(seed) != ed25519.SeedSize {
+		return nil, errors.New("seed must be 64 hex characters")
+	}
+	return ed25519.NewKeyFromSeed(seed), nil
+}
+
+// Resolve loads a key from the environment variable envVar if it is set
+// (how container platforms and secret managers inject secrets), otherwise
+// from path. It returns nil if neither is given.
+func Resolve(path, envVar string) (ed25519.PrivateKey, error) {
+	if v := os.Getenv(envVar); v != "" {
+		k, err := FromSeedHex(v)
+		if err != nil {
+			return nil, fmt.Errorf("%s: %w", envVar, err)
+		}
+		return k, nil
+	}
+	if path == "" {
+		return nil, nil
+	}
+	return Load(path)
+}
+
+// SeedHex returns the hex seed of a key, for export.
+func SeedHex(priv ed25519.PrivateKey) string { return hex.EncodeToString(priv.Seed()) }
 
 // Address returns the address of a private key.
 func Address(priv ed25519.PrivateKey) types.Address {

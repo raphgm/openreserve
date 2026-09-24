@@ -1,0 +1,51 @@
+# Production stack for one server: block producer, ORPay backend, and Caddy
+# (HTTPS + the web wallet). See deploy/README.md.
+services:
+  node:
+    build:
+      context: ..
+      dockerfile: Dockerfile
+    restart: unless-stopped
+    command: ["-genesis", "/config/genesis.json", "-data", "/data", "-trust-proxy"]
+    environment:
+      ORP_PROPOSER_SEED: ${ORP_PROPOSER_SEED:?set ORP_PROPOSER_SEED in deploy/.env}
+    volumes:
+      - ./genesis.json:/config/genesis.json:ro
+      - node-data:/data
+
+  orpay-backend:
+    build:
+      context: ..
+      dockerfile: apps/orpay/Dockerfile
+      target: backend
+    restart: unless-stopped
+    command: ["-db", "/data/orpay-users.json", "-node", "http://node:8080", "-trust-proxy"]
+    environment:
+      # Leave empty on networks with real value to disable the faucet.
+      ORPAY_FAUCET_SEED: ${ORPAY_FAUCET_SEED:-}
+    volumes:
+      - orpay-data:/data
+    depends_on: [node]
+
+  web:
+    build:
+      context: ..
+      dockerfile: apps/orpay/Dockerfile
+      target: web
+    restart: unless-stopped
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in deploy/.env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on: [node, orpay-backend]
+
+volumes:
+  node-data:
+  orpay-data:
+  caddy-data:
+  caddy-config:

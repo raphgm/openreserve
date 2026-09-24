@@ -25,6 +25,7 @@ import (
 	"github.com/openreserve/node/api"
 	"github.com/openreserve/node/chain"
 	"github.com/openreserve/node/keys"
+	"github.com/openreserve/node/ratelimit"
 	"github.com/openreserve/node/types"
 )
 
@@ -32,14 +33,21 @@ func main() {
 	var (
 		dataDir     = flag.String("data", "./data", "data directory")
 		genesisPath = flag.String("genesis", "genesis.json", "genesis file")
-		keyPath     = flag.String("key", "", "proposer key file (enables block production)")
+		keyPath     = flag.String("key", "", "proposer key file (enables block production); or set ORP_PROPOSER_SEED")
 		follow      = flag.String("follow", "", "URL of an upstream node to replicate from")
 		listen      = flag.String("listen", ":8080", "HTTP API listen address")
 		interval    = flag.Duration("block-interval", time.Second, "how often to produce a block")
+		readRate    = flag.Int("rate-read", 600, "read requests per minute per client IP")
+		submitRate  = flag.Int("rate-submit", 60, "transaction submissions per minute per client IP")
+		trustProxy  = flag.Bool("trust-proxy", false, "use X-Forwarded-For for client IPs (only behind a reverse proxy)")
 	)
 	flag.Parse()
-	if (*keyPath == "") == (*follow == "") {
-		log.Fatal("exactly one of -key (producer) or -follow (replica) is required")
+	key, err := keys.Resolve(*keyPath, "ORP_PROPOSER_SEED")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if (key == nil) == (*follow == "") {
+		log.Fatal("give exactly one of a proposer key (-key or ORP_PROPOSER_SEED) or -follow URL")
 	}
 
 	g, err := chain.LoadGenesis(*genesisPath)
@@ -61,11 +69,7 @@ func main() {
 	defer stop()
 
 	handler := api.Handler(c)
-	if *keyPath != "" {
-		key, err := keys.Load(*keyPath)
-		if err != nil {
-			log.Fatal(err)
-		}
+	if key != nil {
 		if keys.Address(key) != g.Proposer {
 			log.Fatalf("key %s is not the genesis proposer %s", keys.Address(key), g.Proposer)
 		}
@@ -79,6 +83,7 @@ func main() {
 		go replicate(ctx, c, up)
 	}
 
+	handler = limit(handler, *readRate, *submitRate, *trustProxy)
 	srv := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -194,3 +199,20 @@ func forwardSubmits(local http.Handler, c *chain.Chain, up *url.URL) http.Handle
 }
 
 type txKey struct{}
+
+// limit applies a strict per-IP budget to submissions and a looser one to reads.
+func limit(next http.Handler, readPerMin, submitPerMin int, trustProxy bool) http.Handler {
+	reads := ratelimit.New(readPerMin, max(readPerMin/5, 1))
+	submits := ratelimit.New(submitPerMin, max(submitPerMin/3, 1))
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		l := reads
+		if r.Method == http.MethodPost {
+			l = submits
+		}
+		if ok, wait := l.Allow(ratelimit.ClientIP(r, trustProxy)); !ok {
+			ratelimit.TooMany(w, wait)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}

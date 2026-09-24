@@ -297,3 +297,26 @@ func TestGenesisValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestHistoryIndex(t *testing.T) {
+	f := newFixture(t)
+	c := f.open(t.TempDir())
+	carol := newActor(t)
+	mustSubmit(t, c, f.tx(f.alice, f.bob, types.Unit, 0))
+	f.produce(c)
+	mustSubmit(t, c, f.tx(f.alice, carol, 2*types.Unit, 1))
+	f.produce(c)
+	mustSubmit(t, c, f.tx(f.bob, carol, types.Unit/2, 0))
+	f.produce(c)
+
+	got := c.History(carol.addr, 10)
+	if len(got) != 2 || got[0].Height != 3 || got[1].Height != 2 {
+		t.Fatalf("carol history = %+v", got)
+	}
+	if h := c.History(f.alice.addr, 1); len(h) != 1 || h[0].Height != 2 {
+		t.Errorf("alice limited history = %+v", h)
+	}
+	if h := c.History(newActor(t).addr, 10); len(h) != 0 {
+		t.Errorf("unknown address has history %+v", h)
+	}
+}

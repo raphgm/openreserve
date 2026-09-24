@@ -1,9 +1,11 @@
 # Local devnet: one block producer and one verifying replica.
-# Create ./devnet first with `make devnet-init`.
+# Create ./devnet first with `make devnet-init`, then run `make devnet-up`.
 services:
   producer:
     build: .
-    command: ["-key", "/devnet/proposer.json", "-genesis", "/devnet/genesis.json", "-data", "/data"]
+    command: ["-genesis", "/devnet/genesis.json", "-data", "/data"]
+    environment:
+      ORP_PROPOSER_SEED: ${ORP_PROPOSER_SEED:?run make devnet-init}
     volumes:
       - ./devnet:/devnet:ro
       - producer-data:/data

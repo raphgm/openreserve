@@ -24,6 +24,7 @@ import (
 	"time"
 
 	"github.com/openreserve/node/keys"
+	"github.com/openreserve/node/ratelimit"
 	"github.com/openreserve/node/types"
 )
 
@@ -32,9 +33,10 @@ func main() {
 		listen     = flag.String("listen", ":4000", "listen address")
 		dbPath     = flag.String("db", "orpay-users.json", "username directory file")
 		nodeURL    = flag.String("node", "http://localhost:8080", "OpenReserve node API")
-		faucetKey  = flag.String("faucet-key", "", "key file funding the devnet faucet (disabled if empty)")
+		faucetKey  = flag.String("faucet-key", "", "key file funding the devnet faucet; or set ORPAY_FAUCET_SEED (disabled if neither)")
 		faucetAmt  = flag.String("faucet-amount", "100", "ORP per faucet request")
 		faucetWait = flag.Duration("faucet-cooldown", time.Hour, "minimum time between faucet requests per address")
+		trustProxy = flag.Bool("trust-proxy", false, "use X-Forwarded-For for client IPs (only behind a reverse proxy)")
 	)
 	flag.Parse()
 
@@ -43,11 +45,11 @@ func main() {
 		log.Fatal(err)
 	}
 	s := &server{dir: dir, node: strings.TrimRight(*nodeURL, "/")}
-	if *faucetKey != "" {
-		key, err := keys.Load(*faucetKey)
-		if err != nil {
-			log.Fatal(err)
-		}
+	key, err := keys.Resolve(*faucetKey, "ORPAY_FAUCET_SEED")
+	if err != nil {
+		log.Fatal(err)
+	}
+	if key != nil {
 		amt, err := types.ParseAmount(*faucetAmt)
 		if err != nil {
 			log.Fatal(err)
@@ -60,11 +62,13 @@ func main() {
 	mux.HandleFunc("GET /api/config", s.config)
 	mux.HandleFunc("GET /api/users/{name}", s.resolve)
 	mux.HandleFunc("GET /api/addresses/{addr}", s.lookup)
-	mux.HandleFunc("POST /api/users", s.register)
-	mux.HandleFunc("POST /api/faucet", s.drip)
+	// Per-IP limits: signups and faucet requests are the abuse targets.
+	mux.Handle("POST /api/users", ratelimit.Middleware(ratelimit.New(10, 3), *trustProxy, http.HandlerFunc(s.register)))
+	mux.Handle("POST /api/faucet", ratelimit.Middleware(ratelimit.New(5, 2), *trustProxy, http.HandlerFunc(s.drip)))
 
 	log.Printf("ORPay backend listening on %s (node %s)", *listen, s.node)
-	srv := &http.Server{Addr: *listen, Handler: mux, ReadHeaderTimeout: 10 * time.Second}
+	handler := ratelimit.Middleware(ratelimit.New(300, 60), *trustProxy, mux)
+	srv := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	log.Fatal(srv.ListenAndServe())
 }
 

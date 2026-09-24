@@ -1,6 +1,8 @@
 // Minimal OpenReserve client: keys, amounts, transaction signing and the node API.
 // The signing encoding must match node/types.Tx.SignBytes exactly.
 import * as ed from '@noble/ed25519'
+import { entropyToMnemonic, mnemonicToEntropy, validateMnemonic } from '@scure/bip39'
+import { wordlist } from '@scure/bip39/wordlists/english'
 
 export const UNIT = 1_000_000n
 
@@ -149,4 +151,33 @@ export const api = {
 
 export function registerMessage(username, address) {
   return `orpay/register/v1\n${username}\n${address}`
+}
+
+// Recovery words: the 32-byte seed as 24 BIP39 words (same as `orctl words`).
+export const seedToWords = (seed) => entropyToMnemonic(seed, wordlist)
+
+export function wordsToSeed(phrase) {
+  const words = phrase.trim().toLowerCase().split(/\s+/)
+  if (words.length !== 24) throw new Error(`Enter all 24 words (you entered ${words.length}).`)
+  const bad = words.findIndex((w) => !wordlist.includes(w))
+  if (bad >= 0) throw new Error(`Word ${bad + 1} ("${words[bad]}") isn't a recovery word. Check the spelling.`)
+  const joined = words.join(' ')
+  if (!validateMnemonic(joined, wordlist)) throw new Error("These words don't form a valid key. Check their order.")
+  return mnemonicToEntropy(joined, wordlist)
+}
+
+// Pay links: https://<orpay>/?to=bob&amount=5&memo=Lunch
+export function payLink({ to, amount, memo }) {
+  const u = new URL(location.origin + '/')
+  u.searchParams.set('to', to)
+  if (amount) u.searchParams.set('amount', amount)
+  if (memo) u.searchParams.set('memo', memo)
+  return u.toString()
+}
+
+export function readPayLink(search = location.search) {
+  const q = new URLSearchParams(search)
+  const to = q.get('to')
+  if (!to) return null
+  return { to, amount: q.get('amount') ?? '', memo: (q.get('memo') ?? '').slice(0, 140) }
 }

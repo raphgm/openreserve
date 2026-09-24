@@ -229,6 +229,8 @@ What works today is the **ledger core**. Everything else in this README is desig
 | Single authorized block producer | Working |
 | Replica nodes that re-execute and verify every block | Working |
 | REST API and `orctl` CLI wallet | Working |
+| ORPay web wallet: @usernames, QR codes and pay links, 24 recovery words | Working |
+| Per-IP rate limits, protected key loading, HTTPS deploy kit with backups | Working |
 | Multi-validator BFT consensus, P2P gossip | Planned (see [ROADMAP](ROADMAP.md)) |
 | VM, bridge, governance, reserve minting | Prototypes in `node/_experimental`, not built |
 
@@ -281,6 +283,11 @@ Create a wallet, tap **Get 100 test ORP**, claim an @username and send a payment
 ORPay is non-custodial: keys are generated in the browser, encrypted with your
 password (PBKDF2 + AES-GCM) and never leave the device. The backend only maps
 usernames to addresses, and each claim must be signed by the address's key.
+
+## Deploy
+
+See [deploy/README.md](deploy/README.md) to run the node and ORPay on your own
+domain with HTTPS and automatic backups.
 
 ## Run the tests
 

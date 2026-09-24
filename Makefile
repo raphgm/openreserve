@@ -21,18 +21,22 @@ devnet-init: build
 	$(BIN)/orctl genesis -chain-id openreserve-devnet-1 \
 		-proposer $$($(BIN)/orctl address -key devnet/proposer.json) \
 		-alloc $$($(BIN)/orctl address -key devnet/alice.json)=1000000 > devnet/genesis.json
-	@# Readable by the non-root container user. Devnet keys only; never do this with real keys.
-	chmod 644 devnet/*.json
+	@# Seeds for the Docker devnet, passed as env vars instead of readable key files.
+	umask 077 && printf 'ORP_PROPOSER_SEED=%s\nORPAY_FAUCET_SEED=%s\n' \
+		$$($(BIN)/orctl export-seed -key devnet/proposer.json) \
+		$$($(BIN)/orctl export-seed -key devnet/alice.json) > devnet/.env
 	@echo "devnet ready. alice = $$($(BIN)/orctl address -key devnet/alice.json)"
 
 devnet-up:
-	docker compose up --build
+	docker compose --env-file devnet/.env up --build
 
 run: build
+	@chmod 600 devnet/proposer.json devnet/alice.json
 	$(BIN)/openreserved -key devnet/proposer.json -genesis devnet/genesis.json -data devnet/data
 
 # ORPay backend (usernames + devnet faucet funded by alice). Needs `make run`.
 orpay-backend:
+	@chmod 600 devnet/alice.json
 	cd apps/orpay/backend && go run . -db ../../../devnet/orpay-users.json -faucet-key ../../../devnet/alice.json
 
 # ORPay web app on http://localhost:5173 (proxies to the node and backend).

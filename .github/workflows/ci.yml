@@ -14,3 +14,15 @@ jobs:
       - run: make lint
       - run: make test
       - run: make build
+  orpay:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: node/go.mod
+      - run: cd apps/orpay/backend && go vet ./... && go build ./...
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cd apps/orpay/frontend && npm ci && npm run build

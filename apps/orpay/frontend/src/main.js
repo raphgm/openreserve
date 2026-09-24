@@ -1,8 +1,9 @@
 import './style.css'
 import {
   addressOf, api, formatAmount, fromHex, isAddress, newSeed, node, parseAmount,
-  registerMessage, send, signMessage, toHex, waitForCommit,
+  payLink, readPayLink, registerMessage, seedToWords, send, signMessage, waitForCommit, wordsToSeed,
 } from './orp.js'
+import { renderSVG } from 'uqr'
 import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './vault.js'
 
 const app = document.getElementById('app')
@@ -18,6 +19,16 @@ const state = {
   names: new Map(), // address -> username cache
   tab: 'send',
   online: true,
+}
+
+// A pay link (?to=...) opened before unlocking is kept until the wallet opens.
+const PENDING = 'orpay.pending'
+{
+  const req = readPayLink()
+  if (req) {
+    sessionStorage.setItem(PENDING, JSON.stringify(req))
+    history.replaceState(null, '', location.pathname)
+  }
 }
 
 const esc = (s) =>
@@ -43,26 +54,28 @@ function renderWelcome() {
       <p class="muted">Send ORP to anyone by @username. Your keys stay on this device.</p>
       <div class="stack">
         <button class="primary" id="create">Create a wallet</button>
-        <button class="ghost" id="import">I have a recovery key</button>
+        <button class="ghost" id="import">Restore with recovery words</button>
       </div>
     </main>`
   $('#create').onclick = async () => showBackup(await newSeed())
   $('#import').onclick = renderImport
 }
 
+function wordGrid(seed) {
+  return `<ol class="words">${seedToWords(seed).split(' ').map((w) => `<li>${w}</li>`).join('')}</ol>`
+}
+
 function showBackup(seed) {
   app.innerHTML = `
     <main class="narrow">
       <button class="link back" id="back">← Back</button>
-      <h1>Save your recovery key</h1>
-      <p class="muted">This key is the only way to restore your wallet. Anyone who has it can spend your ORP. Write it down and keep it offline.</p>
-      <div class="secret" id="secret">${toHex(seed)}</div>
-      <button class="ghost small" id="copy">Copy</button>
-      <label class="check"><input type="checkbox" id="saved"> I saved my recovery key</label>
+      <h1>Write down your recovery words</h1>
+      <p class="muted">These 24 words are the only way to restore your wallet. Anyone who has them can spend your ORP. Write them on paper, in order, and keep them offline.</p>
+      ${wordGrid(seed)}
+      <label class="check"><input type="checkbox" id="saved"> I wrote down all 24 words</label>
       <button class="primary" id="next" disabled>Continue</button>
     </main>`
   $('#back').onclick = renderWelcome
-  $('#copy').onclick = () => navigator.clipboard.writeText(toHex(seed)).then(() => toast('Copied'))
   $('#saved').onchange = (e) => ($('#next').disabled = !e.target.checked)
   $('#next').onclick = () => renderSetPassword(seed)
 }
@@ -73,7 +86,7 @@ function renderImport() {
       <button class="link back" id="back">← Back</button>
       <h1>Restore wallet</h1>
       <form id="f" class="stack">
-        <label>Recovery key<textarea id="key" rows="3" spellcheck="false" autocomplete="off" placeholder="64 hex characters"></textarea></label>
+        <label>Recovery words<textarea id="key" rows="4" spellcheck="false" autocomplete="off" autocapitalize="none" placeholder="24 words separated by spaces"></textarea></label>
         <p class="error" id="err"></p>
         <button class="primary">Continue</button>
       </form>
@@ -81,9 +94,13 @@ function renderImport() {
   $('#back').onclick = renderWelcome
   $('#f').onsubmit = (e) => {
     e.preventDefault()
-    const hex = $('#key').value.trim().toLowerCase()
-    if (!/^[0-9a-f]{64}$/.test(hex)) return ($('#err').textContent = 'A recovery key is 64 hex characters.')
-    renderSetPassword(fromHex(hex))
+    const v = $('#key').value.trim().toLowerCase()
+    try {
+      // Older wallets exported a 64-character hex key; still accept it.
+      renderSetPassword(/^[0-9a-f]{64}$/.test(v) ? fromHex(v) : wordsToSeed(v))
+    } catch (err) {
+      $('#err').textContent = err.message
+    }
   }
 }
 
@@ -152,6 +169,13 @@ async function openWallet(seed, address) {
   api.lookup(address).then((r) => ((state.username = r.username), renderHeader())).catch(() => {})
   refresh()
   setInterval(refresh, 2000)
+  const pending = sessionStorage.getItem(PENDING)
+  if (pending) {
+    sessionStorage.removeItem(PENDING)
+    try {
+      renderSend(JSON.parse(pending))
+    } catch {}
+  }
 }
 
 async function refresh() {
@@ -262,10 +286,13 @@ function renderPanel() {
   state.tab === 'send' ? renderSend() : renderReceive()
 }
 
-function renderSend() {
+function renderSend(prefill = {}) {
+  state.tab = 'send'
+  app.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === 'send'))
   const fee = state.status ? formatAmount(state.status.min_fee) : '…'
   $('#panel').innerHTML = `
     <form id="send" class="stack" autocomplete="off">
+      ${prefill.to ? '<p class="banner">Payment request. Check the details before you send.</p>' : ''}
       <label>To<input id="to" placeholder="@username or address" required></label>
       <p class="hint" id="to-hint"></p>
       <label>Amount (ORP)<input id="amount" inputmode="decimal" placeholder="0.00" required></label>
@@ -276,6 +303,11 @@ function renderSend() {
     </form>`
   let resolved = null
   const toInput = $('#to')
+  if (prefill.to) {
+    toInput.value = isAddress(prefill.to) ? prefill.to : '@' + prefill.to.replace(/^@/, '')
+    $('#amount').value = prefill.amount ?? ''
+    $('#memo').value = prefill.memo ?? ''
+  }
   toInput.oninput = debounce(async () => {
     resolved = null
     const v = toInput.value.trim()
@@ -291,6 +323,8 @@ function renderSend() {
       if (hint.isConnected) hint.textContent = err.message
     }
   }, 300)
+
+  if (prefill.to) toInput.oninput()
 
   $('#send').onsubmit = async (e) => {
     e.preventDefault()
@@ -326,7 +360,7 @@ function renderReview({ to, label, amount, memo }) {
         <button class="primary" id="confirm">Send now</button>
       </div>
     </div>`
-  $('#cancel').onclick = renderSend
+  $('#cancel').onclick = () => renderSend()
   $('#confirm').onclick = async () => {
     const btn = $('#confirm')
     btn.disabled = true
@@ -347,24 +381,70 @@ function renderReview({ to, label, amount, memo }) {
 }
 
 function renderReceive() {
+  const handle = state.username ?? state.address
   $('#panel').innerHTML = `
     <div class="stack">
-      ${state.username ? `<p class="label">Your username</p><p class="big">@${esc(state.username)}</p>` : `<button class="ghost" id="claim">Claim a username so people can pay @you</button>`}
-      <p class="label">Your address</p>
-      <div class="secret mono">${state.address}</div>
-      <button class="ghost small" id="copy">Copy address</button>
+      <div class="qr-wrap">
+        <div class="qr" id="qr" role="img" aria-label="QR code to pay you"></div>
+        <div class="qr-id">
+          ${state.username ? `<p class="big">@${esc(state.username)}</p>` : `<button class="ghost small" id="claim">Claim a username so people can pay @you</button>`}
+          <p class="muted mono small-text">${short(state.address)}</p>
+        </div>
+      </div>
+      <form id="req" class="request">
+        <p class="label">Request a specific amount</p>
+        <div class="row">
+          <input id="req-amount" inputmode="decimal" placeholder="Amount (optional)">
+          <input id="req-memo" maxlength="140" placeholder="What for? (optional)">
+        </div>
+        <p class="error" id="req-err"></p>
+      </form>
+      <div class="row">
+        <button class="primary" id="share">Share pay link</button>
+        <button class="ghost" id="copy">Copy link</button>
+      </div>
+      <button class="link" id="copy-addr">Copy full address</button>
       <details>
         <summary>Wallet settings</summary>
         <div class="stack">
-          <button class="ghost small" id="reveal">Show recovery key</button>
+          <button class="ghost small" id="reveal">Show recovery words</button>
           <button class="danger small" id="lock">Lock wallet</button>
         </div>
       </details>
     </div>`
-  $('#copy').onclick = () => navigator.clipboard.writeText(state.address).then(() => toast('Address copied'))
+  let link = ''
+  const update = () => {
+    const amount = $('#req-amount').value.trim()
+    $('#req-err').textContent = ''
+    if (amount) {
+      try {
+        parseAmount(amount)
+      } catch (err) {
+        $('#req-err').textContent = err.message
+        return
+      }
+    }
+    link = payLink({ to: handle, amount, memo: $('#req-memo').value.trim() })
+    $('#qr').innerHTML = renderSVG(link, { border: 1 })
+  }
+  update()
+  $('#req-amount').oninput = update
+  $('#req-memo').oninput = update
+  $('#req').onsubmit = (e) => e.preventDefault()
+  $('#copy').onclick = () => navigator.clipboard.writeText(link).then(() => toast('Pay link copied'))
+  $('#share').onclick = async () => {
+    if (navigator.share) {
+      try {
+        await navigator.share({ title: 'Pay me with ORPay', url: link })
+      } catch {}
+    } else {
+      navigator.clipboard.writeText(link).then(() => toast('Pay link copied'))
+    }
+  }
+  $('#copy-addr').onclick = () => navigator.clipboard.writeText(state.address).then(() => toast('Address copied'))
   if ($('#claim')) $('#claim').onclick = renderClaim
   $('#reveal').onclick = (e) => {
-    e.target.outerHTML = `<div class="secret mono">${toHex(state.seed)}</div>`
+    if (confirm('Show your recovery words? Make sure nobody can see your screen.')) e.target.outerHTML = wordGrid(state.seed)
   }
   $('#lock').onclick = () => location.reload()
 }

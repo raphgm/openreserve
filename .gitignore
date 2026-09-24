@@ -5,3 +5,6 @@ orpay-users.json
 apps/orpay/frontend/dist/
 # Local wallet key files
 /*.json
+deploy/.env
+deploy/backups/
+deploy/genesis.json

@@ -44,6 +44,7 @@ type Chain struct {
 	state   *ledger.State
 	blocks  []*types.Block // blocks[i] has height i+1
 	txIndex map[types.Hash]TxLocation
+	byAddr  map[types.Address][]TxLocation // txs touching each address, oldest first
 	mempool map[types.Hash]pendingTx
 	log     *blockLog
 	notify  chan struct{} // closed and replaced whenever a block is committed
@@ -63,6 +64,7 @@ func Open(dataDir string, g *Genesis) (*Chain, error) {
 		genesis: g,
 		state:   st,
 		txIndex: map[types.Hash]TxLocation{},
+		byAddr:  map[types.Address][]TxLocation{},
 		mempool: map[types.Hash]pendingTx{},
 		notify:  make(chan struct{}),
 	}
@@ -269,7 +271,10 @@ func (c *Chain) commit(b *types.Block, next *ledger.State) {
 	c.blocks = append(c.blocks, b)
 	for i, tx := range b.Txs {
 		id := tx.ID()
-		c.txIndex[id] = TxLocation{Height: b.Header.Height, Index: i}
+		loc := TxLocation{Height: b.Header.Height, Index: i}
+		c.txIndex[id] = loc
+		c.byAddr[tx.From] = append(c.byAddr[tx.From], loc)
+		c.byAddr[tx.To] = append(c.byAddr[tx.To], loc)
 		delete(c.mempool, id)
 	}
 	// Drop pending txs whose nonce was consumed by this block.
@@ -375,18 +380,17 @@ func (c *Chain) Tx(id types.Hash) (*types.Tx, *TxLocation) {
 	return nil, nil
 }
 
-// History returns committed txs touching an address, newest first.
+// History returns committed txs touching an address, newest first. It
+// reads from a per-address index, so cost is independent of chain length.
 func (c *Chain) History(a types.Address, limit int) []HistoryEntry {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
-	var out []HistoryEntry
-	for i := len(c.blocks) - 1; i >= 0 && len(out) < limit; i-- {
-		b := c.blocks[i]
-		for j := len(b.Txs) - 1; j >= 0 && len(out) < limit; j-- {
-			if tx := b.Txs[j]; tx.From == a || tx.To == a {
-				out = append(out, HistoryEntry{Tx: tx, ID: tx.ID(), Height: b.Header.Height, Time: b.Header.Time})
-			}
-		}
+	locs := c.byAddr[a]
+	out := []HistoryEntry{}
+	for i := len(locs) - 1; i >= 0 && len(out) < limit; i-- {
+		b := c.blocks[locs[i].Height-1]
+		tx := b.Txs[locs[i].Index]
+		out = append(out, HistoryEntry{Tx: tx, ID: tx.ID(), Height: b.Header.Height, Time: b.Header.Time})
 	}
 	return out
 }

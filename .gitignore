@@ -8,6 +8,8 @@ apps/orpay/frontend/dist/
 deploy/.env
 deploy/backups/
 deploy/genesis.json
-devnet/paystack.env
+.env
+.env.*
+!.env.example
 deploy/.monitor-state
 testnet/

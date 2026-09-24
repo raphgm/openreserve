@@ -19,7 +19,7 @@ import (
 // naira; the adapter converts to and from kobo at the edges.
 type flutterwave struct {
 	base       string
-	secret     string // FLWSECK-... / FLWSECK_TEST-...
+	secret     string // from FLW_SECRET_KEY in .env
 	secretHash string // the "secret hash" set in the dashboard; sent as verif-hash on webhooks
 	http       *http.Client
 }

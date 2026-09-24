@@ -25,7 +25,7 @@ import (
 	"github.com/openreserve/node/types"
 )
 
-const secret = "sk_test_fake"
+const secret = "test-paystack-key"
 
 // fakePaystack mimics the parts of the Paystack API the gateway uses.
 type fakePaystack struct {
@@ -447,7 +447,7 @@ type fakeFlutterwave struct {
 }
 
 func (f *fakeFlutterwave) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Header.Get("Authorization") != "Bearer FLWSECK_TEST-fake" {
+	if r.Header.Get("Authorization") != "Bearer test-flutterwave-key" {
 		w.WriteHeader(401)
 		json.NewEncoder(w).Encode(map[string]any{"status": "error", "message": "Invalid authorization key"})
 		return
@@ -502,7 +502,7 @@ func TestFlutterwaveProvider(t *testing.T) {
 	fw := &fakeFlutterwave{txs: map[string]map[string]any{}, transfers: map[string]string{}}
 	fws := httptest.NewServer(fw)
 	defer fws.Close()
-	e.g.providers["flutterwave"] = newFlutterwave(fws.URL, "FLWSECK_TEST-fake", "hash123")
+	e.g.providers["flutterwave"] = newFlutterwave(fws.URL, "test-flutterwave-key", "hash123")
 	_, user, _ := ed25519.GenerateKey(nil)
 
 	var cfg struct {

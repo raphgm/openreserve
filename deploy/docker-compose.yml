@@ -19,13 +19,29 @@ services:
       dockerfile: apps/orpay/Dockerfile
       target: backend
     restart: unless-stopped
-    command: ["-db", "/data/orpay-users.json", "-node", "http://node:8080", "-trust-proxy"]
+    command: ["-db", "/data/orpay-users.json", "-node", "http://node:8080", "-trust-proxy",
+              "-public-url", "https://${DOMAIN}", "-default-currency", "NGN", "-card-payments"]
     environment:
       # Leave empty on networks with real value to disable the faucet.
       ORPAY_FAUCET_SEED: ${ORPAY_FAUCET_SEED:-}
+      ORPAY_ADMINS: ${ORPAY_ADMINS:-}
     volumes:
       - orpay-data:/data
     depends_on: [node]
+
+  gateway:
+    build:
+      context: ..
+      dockerfile: apps/gateway/Dockerfile
+    restart: unless-stopped
+    command: ["-data", "/data", "-node", "http://node:8080", "-backend", "http://orpay-backend:4000",
+              "-public-url", "https://${DOMAIN}", "-trust-proxy"]
+    environment:
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:?set PAYSTACK_SECRET_KEY in deploy/.env}
+      ORP_ISSUER_SEED: ${ORP_ISSUER_SEED:?set ORP_ISSUER_SEED in deploy/.env}
+    volumes:
+      - gateway-data:/data
+    depends_on: [node, orpay-backend]
 
   web:
     build:
@@ -42,10 +58,11 @@ services:
     volumes:
       - caddy-data:/data
       - caddy-config:/config
-    depends_on: [node, orpay-backend]
+    depends_on: [node, orpay-backend, gateway]
 
 volumes:
   node-data:
   orpay-data:
+  gateway-data:
   caddy-data:
   caddy-config:

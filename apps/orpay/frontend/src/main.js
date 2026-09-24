@@ -1,12 +1,13 @@
 import './style.css'
 import {
-  addressOf, api, formatAmount, fromHex, isAddress, newSeed, node, parseAmount,
+  addressOf, api, assetLabel, feeFor, formatAmount, formatMoney, fromHex, gateway, isAddress, newSeed, node, parseAmount,
   payLink, readPayLink, registerMessage, seedToWords, send, signMessage, waitForCommit, wordsToSeed,
 } from './orp.js'
 import { renderSVG } from 'uqr'
 import { initPools, renderPool, renderPools } from './pools.js'
 import { initCheckout, renderCheckout } from './checkout.js'
 import { initDevelopers, renderDevelopers } from './developers.js'
+import { confirmDeposit, initMoney, renderAddMoney, renderWithdraw } from './money.js'
 import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './vault.js'
 
 const app = document.getElementById('app')
@@ -31,8 +32,10 @@ const state = {
 const PENDING = 'orpay.pending'
 {
   const q = new URLSearchParams(location.search)
-  const req = q.get('invoice')
-    ? { invoice: q.get('invoice') }
+  const req = q.get('deposit')
+    ? { deposit: q.get('deposit') }
+    : q.get('invoice')
+    ? { invoice: q.get('invoice'), card: q.get('card') }
     : q.get('pool')
       ? { pool: q.get('pool') }
       : readPayLink()
@@ -177,17 +180,15 @@ async function openWallet(seed, address) {
   state.address = address
   renderWallet()
   api.config().then((c) => ((state.config = c), renderBalance())).catch(() => {})
+  gateway
+    .config()
+    .then((g) => {
+      state.gateway = g
+      renderBalance()
+      if (state.view === 'home' && state.tab === 'send' && !$('#to')?.value) renderSend()
+    })
+    .catch(() => {})
   api.lookup(address).then((r) => ((state.username = r.username), renderHeader())).catch(() => {})
-  const ctx = {
-    state, $, esc, short, toast, resolveRecipient,
-    nameOf: (a) => state.names.get(a),
-    resolveNames: resolveAddrs,
-    root: () => $('#view'),
-    home: () => showView('home'),
-  }
-  initPools(ctx)
-  initCheckout(ctx)
-  initDevelopers(ctx)
   refresh()
   setInterval(refresh, 2000)
   const pending = sessionStorage.getItem(PENDING)
@@ -195,7 +196,8 @@ async function openWallet(seed, address) {
     sessionStorage.removeItem(PENDING)
     try {
       const req = JSON.parse(pending)
-      if (req.invoice) showView('checkout', () => renderCheckout(req.invoice))
+      if (req.deposit) showView('money', () => confirmDeposit(req.deposit))
+      else if (req.invoice) showView('checkout', () => renderCheckout(req.invoice, req.card))
       else if (req.pool) showView('pools', () => renderPool(req.pool))
       else renderSend(req)
     } catch {}
@@ -245,7 +247,7 @@ function notifyIncoming(history) {
     for (const e of history) {
       if (state.seen.has(e.id) || e.tx.to !== state.address) continue
       const from = state.names.get(e.tx.from)
-      const msg = `Received ${formatAmount(e.tx.amount)} ORP${from ? ` from @${from}` : ''}`
+      const msg = `Received ${formatMoney(e.tx.amount, e.tx.asset ?? '')}${from ? ` from @${from}` : ''}`
       toast(msg)
       try {
         if (document.hidden && Notification.permission === 'granted') new Notification('ORPay', { body: msg, icon: '/icon-192.png' })
@@ -266,7 +268,7 @@ async function refresh() {
     renderBalance()
     renderHeader()
     const fee = $('#fee')
-    if (fee) fee.textContent = formatAmount(status.min_fee)
+    if (fee && !$('[data-cur]')) fee.textContent = formatMoney(status.min_fee, '')
     if (changed) {
       renderActivity()
       resolveNames(history)
@@ -326,19 +328,35 @@ function renderHeader() {
   $('#net').innerHTML = net
 }
 
+// The currencies this wallet can hold: naira first when the Paystack
+// gateway runs, then ORP.
+function currencies() {
+  const list = []
+  if (state.gateway) list.push(state.gateway.asset)
+  list.push('')
+  return list
+}
+
+const balanceOf = (asset) =>
+  BigInt(asset ? state.account?.assets?.[asset] ?? 0 : state.account?.balance ?? 0)
+
 function renderBalance() {
   const el = $('#balance')
   if (!el) return
-  const bal = state.account ? formatAmount(state.account.balance) : '—'
-  // Build the card once; later polls only update the number so buttons
+  const primary = currencies()[0]
+  // Build the card once; later polls only update the numbers so buttons
   // are never swapped out from under the user's click.
-  const key = String(state.config.faucet)
+  const key = `${state.config.faucet}|${primary}`
   if (el.dataset.built !== key) {
     el.dataset.built = key
     el.innerHTML = `
-      <p class="label">Balance</p>
-      <p class="amount"><span id="bal"></span> <span class="unit">ORP</span></p>
-      ${state.config.faucet ? `<button class="ghost small" id="faucet">Get ${formatAmount(state.config.faucet_amount)} test ORP</button>` : ''}`
+      <p class="label">${primary ? 'Naira balance' : 'Balance'}</p>
+      <p class="amount" id="bal"></p>
+      ${primary ? '<p class="sub-balance">ORP <span id="bal-orp"></span></p>' : ''}
+      <div class="balance-actions">
+        ${primary ? '<button class="ghost small" id="add">＋ Add money</button><button class="ghost small" id="withdraw">↗ Withdraw</button>' : ''}
+        ${state.config.faucet ? `<button class="ghost small" id="faucet">Get ${formatAmount(state.config.faucet_amount)} test ORP</button>` : ''}
+      </div>`
     const f = $('#faucet')
     if (f)
       f.onclick = async () => {
@@ -351,8 +369,17 @@ function renderBalance() {
         }
         f.disabled = false
       }
+    if ($('#add')) $('#add').onclick = () => showView('money', renderAddMoney)
+    if ($('#withdraw')) $('#withdraw').onclick = () => showView('money', renderWithdraw)
   }
-  $('#bal').textContent = bal
+  if (!state.account) {
+    $('#bal').textContent = '—'
+    return
+  }
+  $('#bal').innerHTML = primary
+    ? esc(formatMoney(balanceOf(primary), primary))
+    : `${esc(formatAmount(balanceOf('')))} <span class="unit">ORP</span>`
+  if ($('#bal-orp')) $('#bal-orp').textContent = formatAmount(balanceOf(''))
 }
 
 function renderPanel() {
@@ -363,18 +390,29 @@ function renderPanel() {
 function renderSend(prefill = {}) {
   state.tab = 'send'
   app.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === 'send'))
-  const fee = state.status ? formatAmount(state.status.min_fee) : '…'
+  const curs = currencies()
+  let asset = prefill.asset ?? curs[0]
+  const feeText = () => (state.status ? formatMoney(feeFor(state.status, asset), asset) : '…')
   $('#panel').innerHTML = `
     <form id="send" class="stack" autocomplete="off">
       ${prefill.to ? '<p class="banner">Payment request. Check the details before you send.</p>' : ''}
       <label>To<input id="to" placeholder="@username or address" required></label>
       <p class="hint" id="to-hint"></p>
-      <label>Amount (ORP)<input id="amount" inputmode="decimal" placeholder="0.00" required></label>
+      ${curs.length > 1 ? `<div class="seg" role="radiogroup" aria-label="Currency">${curs.map((c) => `<button type="button" role="radio" data-cur="${c}">${assetLabel(c)}</button>`).join('')}</div>` : ''}
+      <label><span id="amount-label">Amount</span><input id="amount" inputmode="decimal" placeholder="0.00" required></label>
       <label><span>Note <span class="muted">(optional, public)</span></span><input id="memo" maxlength="140"></label>
-      <p class="hint">Network fee: <span id="fee">${fee}</span> ORP</p>
+      <p class="hint">Network fee: <span id="fee">${feeText()}</span></p>
       <p class="error" id="err"></p>
       <button class="primary" id="go">Review</button>
     </form>`
+  const setAsset = (a) => {
+    asset = a
+    app.querySelectorAll('[data-cur]').forEach((b) => b.setAttribute('aria-checked', b.dataset.cur === a))
+    $('#amount-label').textContent = a === 'NGN' ? 'Amount (₦)' : `Amount (${a || 'ORP'})`
+    $('#fee').textContent = feeText()
+  }
+  app.querySelectorAll('[data-cur]').forEach((b) => (b.onclick = () => setAsset(b.dataset.cur)))
+  setAsset(asset)
   let resolved = null
   const toInput = $('#to')
   if (prefill.to) {
@@ -407,25 +445,26 @@ function renderSend(prefill = {}) {
     try {
       const to = resolved ?? (await resolveRecipient(toInput.value.trim()))
       if (to === state.address) throw new Error("That's your own wallet.")
-      const amount = parseAmount($('#amount').value)
+      const amount = parseAmount($('#amount').value.replace(/,/g, ''))
       if (amount === 0n) throw new Error('Amount must be more than 0.')
-      const total = amount + BigInt(state.status.min_fee)
-      if (state.account && total > BigInt(state.account.balance)) throw new Error('Not enough ORP for amount plus fee.')
-      renderReview({ to, label: toInput.value.trim(), amount, memo: $('#memo').value })
+      if (asset === 'NGN' && amount % 10_000n !== 0n) throw new Error('Naira amounts can have at most 2 decimals.')
+      const total = amount + feeFor(state.status, asset)
+      if (state.account && total > balanceOf(asset)) throw new Error(`Not enough ${asset === 'NGN' ? 'naira' : 'ORP'} for amount plus fee.`)
+      renderReview({ to, label: toInput.value.trim(), amount, memo: $('#memo').value, asset })
     } catch (e2) {
       err.textContent = e2.message
     }
   }
 }
 
-function renderReview({ to, label, amount, memo }) {
+function renderReview({ to, label, amount, memo, asset }) {
   $('#panel').innerHTML = `
     <div class="review">
       <p class="label">You're sending</p>
-      <p class="amount">${formatAmount(amount)} <span class="unit">ORP</span></p>
+      <p class="amount">${esc(formatMoney(amount, asset))}</p>
       <dl>
         <dt>To</dt><dd>${esc(label.startsWith('@') ? label : short(to))}</dd>
-        <dt>Fee</dt><dd>${formatAmount(state.status.min_fee)} ORP</dd>
+        <dt>Fee</dt><dd>${esc(formatMoney(feeFor(state.status, asset), asset))}</dd>
         ${memo ? `<dt>Note</dt><dd>${esc(memo)}</dd>` : ''}
       </dl>
       <p class="error" id="err"></p>
@@ -434,18 +473,18 @@ function renderReview({ to, label, amount, memo }) {
         <button class="primary" id="confirm">Send now</button>
       </div>
     </div>`
-  $('#cancel').onclick = () => renderSend()
+  $('#cancel').onclick = () => renderSend({ asset })
   $('#confirm').onclick = async () => {
     const btn = $('#confirm')
     btn.disabled = true
     btn.textContent = 'Sending…'
     try {
-      const id = await send({ seed: state.seed, to, amount, memo })
+      const id = await send({ seed: state.seed, to, amount, memo, asset })
       btn.textContent = 'Confirming…'
       const t = await waitForCommit(id)
-      toast(`Sent ${formatAmount(amount)} ORP · block ${t.location.height}`)
+      toast(`Sent ${formatMoney(amount, asset)} · block ${t.location.height}`)
       refresh()
-      renderSend()
+      renderSend({ asset })
     } catch (err) {
       $('#err').textContent = err.message
       btn.disabled = false
@@ -569,6 +608,7 @@ function renderActivity() {
   ul.innerHTML = state.history
     .map((e) => {
       if (e.tx.pool) return poolActivity(e)
+      if (e.tx.kind === 'mint' || e.tx.kind === 'burn') return cashActivity(e)
       const out = e.tx.from === state.address
       const other = out ? e.tx.to : e.tx.from
       const name = state.names.get(other)
@@ -580,11 +620,24 @@ function renderActivity() {
             <strong>${name ? `@${esc(name)}` : `<span class="mono">${short(other)}</span>`}</strong>
             <small>${when}${e.tx.memo ? ` · ${esc(e.tx.memo)}` : ''}</small>
           </span>
-          <span class="amt ${out ? 'out' : 'in'}">${out ? '−' : '+'}${formatAmount(e.tx.amount)}</span>
+          <span class="amt ${out ? 'out' : 'in'}">${out ? '−' : '+'}${esc(formatMoney(e.tx.amount, e.tx.asset ?? ''))}</span>
         </li>`
     })
     .join('')
   ul.querySelectorAll('[data-pool]').forEach((li) => (li.onclick = () => showView('pools', () => renderPool(li.dataset.pool))))
+}
+
+function cashActivity(e) {
+  const when = new Date(e.time).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const mint = e.tx.kind === 'mint'
+  const memo = e.tx.memo ?? ''
+  const text = !mint ? 'Withdrawal to bank' : memo.startsWith('inv:') ? 'Card payment received' : memo.startsWith('withdrawal refund') ? 'Withdrawal refunded' : 'Added money'
+  return `
+    <li>
+      <span class="icon ${mint ? 'in' : 'out'}" aria-hidden="true">${mint ? '＋' : '↗'}</span>
+      <span class="who"><strong>${text}</strong><small>${when} · via Paystack</small></span>
+      <span class="amt ${mint ? 'in' : 'out'}">${mint ? '+' : '−'}${esc(formatMoney(e.tx.amount, e.tx.asset ?? ''))}</span>
+    </li>`
 }
 
 function poolActivity(e) {
@@ -616,4 +669,41 @@ function debounce(fn, ms) {
   }
 }
 
-hasVault() ? renderUnlock() : renderWelcome()
+// Shared context handed to the feature modules (pools, checkout, money...).
+const ctx = {
+  state, $, esc, short, toast, resolveRecipient,
+  nameOf: (a) => state.names.get(a),
+  resolveNames: resolveAddrs,
+  root: () => $('#view'),
+  home: () => showView('home'),
+  refresh: () => refresh(),
+  currencies: () => currencies(),
+  gatewayCall: (fn) => fn(),
+  // Checkout works without a wallet (card payment). Paying from the wallet
+  // asks the customer to unlock or create one, then returns to the checkout.
+  requireWallet: () => (hasVault() ? renderUnlock() : renderWelcome()),
+}
+initPools(ctx)
+initCheckout(ctx)
+initDevelopers(ctx)
+initMoney(ctx)
+
+function renderGuestCheckout(invoice) {
+  app.innerHTML = `
+    <header id="header"><span class="logo">ORPay</span><span class="net"></span>
+      <button class="chip" id="signin">${hasVault() ? 'Unlock wallet' : 'Open ORPay'}</button></header>
+    <main class="wallet" id="view"></main>`
+  $('#signin').onclick = ctx.requireWallet
+  node.status().then((st) => (state.status = st)).catch(() => {})
+  gateway.config().then((g) => (state.gateway = g)).catch(() => {})
+  renderCheckout(invoice.invoice, invoice.card)
+}
+
+{
+  let pending = null
+  try {
+    pending = JSON.parse(sessionStorage.getItem(PENDING))
+  } catch {}
+  if (pending?.invoice) renderGuestCheckout(pending)
+  else hasVault() ? renderUnlock() : renderWelcome()
+}

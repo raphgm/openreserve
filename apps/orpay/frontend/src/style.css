@@ -346,3 +346,25 @@ pre.code {
   overflow-x: auto; line-height: 1.5; white-space: pre;
 }
 .receipt dl.summary { text-align: left; }
+
+/* Money */
+.sub-balance { position: relative; z-index: 1; color: rgb(255 255 255 / .8); font-weight: 600; font-size: .9rem; }
+.balance-actions { position: relative; z-index: 1; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 10px; }
+.card.balance .balance-actions button.ghost { margin-top: 0; }
+.seg { display: flex; gap: 4px; background: var(--surface-2); padding: 4px; border-radius: 14px; }
+.seg button { flex: 1; background: transparent; color: var(--muted); padding: 9px; border-radius: 10px; font-size: .9rem; }
+.seg button[aria-checked='true'] { background: var(--surface); color: var(--text); box-shadow: 0 1px 3px rgb(15 23 42 / .1); }
+.quick { display: flex; flex-wrap: wrap; gap: 8px; }
+select {
+  font: inherit; font-size: 1rem; color: var(--text); background: var(--surface-2);
+  border: 1.5px solid transparent; border-radius: 14px; padding: 14px 16px; width: 100%;
+}
+select:focus { outline: none; border-color: var(--brand-1); background: #fff; }
+h2.spaced { margin-top: 24px; }
+.or { display: flex; align-items: center; gap: 10px; color: var(--muted); font-size: .8rem; }
+.or::before, .or::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.spinner {
+  align-self: center; width: 48px; height: 48px; border-radius: 50%;
+  border: 4px solid var(--out-bg); border-top-color: var(--brand-1); animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }

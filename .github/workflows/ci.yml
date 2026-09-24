@@ -21,8 +21,24 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: node/go.mod
-      - run: cd apps/orpay/backend && go vet ./... && go build ./...
+      - run: cd apps/orpay/backend && go vet ./... && go test -race ./...
       - uses: actions/setup-node@v4
         with:
           node-version: 22
       - run: cd apps/orpay/frontend && npm ci && npm run build
+  gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: node/go.mod
+      - run: cd apps/gateway && go vet ./... && go test -race ./...
+  sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: cd sdk/js && node --test

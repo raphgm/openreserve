@@ -1,7 +1,7 @@
 // Hosted checkout for partner apps: /?invoice=<id>. The customer pays the
 // app's settlement address on-chain from their own wallet; the invoice turns
 // paid once the payment lands, and they get a receipt.
-import { api, formatAmount, send, waitForCommit } from './orp.js'
+import { api, feeFor, formatMoney, gateway, send, waitForCommit } from './orp.js'
 
 let ctx
 
@@ -22,7 +22,7 @@ function returnLink(inv) {
   }
 }
 
-export async function renderCheckout(id) {
+export async function renderCheckout(id, cardRef) {
   const root = ctx.root()
   root.innerHTML = '<section class="card"><p class="muted">Loading checkout…</p></section>'
   let inv
@@ -33,6 +33,9 @@ export async function renderCheckout(id) {
     return
   }
   if (inv.status === 'paid') return renderReceipt(inv)
+  if (cardRef) return awaitCardPayment(inv)
+  const asset = inv.asset ?? ''
+  const money = (x) => formatMoney(x, asset)
   const app = inv.app ?? { name: 'Unknown merchant', status: 'unknown' }
   const verified = app.status === 'approved'
   const expires = new Date(inv.expires_at)
@@ -48,15 +51,19 @@ export async function renderCheckout(id) {
           <small>${ctx.esc(app.website ?? '')}</small>
         </span>
       </div>
-      <p class="amount">${formatAmount(inv.amount)} <span class="unit">ORP</span></p>
+      <p class="amount">${money(inv.amount)}</p>
       ${inv.description ? `<p class="muted">${ctx.esc(inv.description)}</p>` : ''}
       <dl class="summary">
-        <dt>Network fee</dt><dd>${ctx.state.status ? formatAmount(ctx.state.status.min_fee) : '…'} ORP</dd>
+        <dt>Network fee</dt><dd>${ctx.state.status ? money(feeFor(ctx.state.status, asset)) : '…'}</dd>
         <dt>${expired ? 'Expired' : 'Expires'}</dt><dd id="expires">${expires.toLocaleString()}</dd>
       </dl>
       ${!verified ? '<p class="banner warn">This merchant is not approved on ORPay. Only pay if you trust them.</p>' : ''}
       <p class="error" id="err"></p>
-      ${expired ? '<p class="banner">This checkout has expired. Ask the merchant for a new one.</p>' : `<button class="primary" id="pay">Pay ${formatAmount(inv.amount)} ORP</button>`}
+      ${expired ? '<p class="banner">This checkout has expired. Ask the merchant for a new one.</p>' : `
+      <button class="primary" id="pay">Pay ${money(inv.amount)} from wallet</button>
+      ${inv.card_payments ? `<div class="or"><span>or</span></div>
+      <label class="card-email">Email for your receipt<input id="card-email" type="email" placeholder="you@example.com"></label>
+      <button class="ghost" id="card">Pay with card, bank or USSD (Paystack)</button>` : ''}`}
       <button class="link" id="cancel">Cancel</button>
     </section>`
   ctx.$('#cancel').onclick = () => {
@@ -65,18 +72,21 @@ export async function renderCheckout(id) {
   }
   const pay = ctx.$('#pay')
   if (!pay) return
+  if (!ctx.state.seed) pay.textContent = 'Pay with ORPay wallet'
   pay.onclick = async () => {
     const err = ctx.$('#err')
     err.textContent = ''
-    const need = BigInt(inv.amount) + BigInt(ctx.state.status?.min_fee ?? 0)
-    if (ctx.state.account && need > BigInt(ctx.state.account.balance)) {
-      err.textContent = 'Not enough ORP for this payment plus the fee.'
+    if (!ctx.state.seed) return ctx.requireWallet() // the checkout link is kept; we return here after unlock
+    const need = BigInt(inv.amount) + feeFor(ctx.state.status, asset)
+    const have = BigInt(asset ? ctx.state.account?.assets?.[asset] ?? 0 : ctx.state.account?.balance ?? 0)
+    if (ctx.state.account && need > have) {
+      err.textContent = `Not enough in your wallet for this payment plus the fee.${inv.card_payments ? ' You can pay with card instead.' : ''}`
       return
     }
     pay.disabled = true
     pay.textContent = 'Sending…'
     try {
-      const txid = await send({ seed: ctx.state.seed, to: inv.merchant, amount: BigInt(inv.amount), memo: inv.memo })
+      const txid = await send({ seed: ctx.state.seed, to: inv.merchant, amount: BigInt(inv.amount), memo: inv.memo, asset })
       pay.textContent = 'Confirming…'
       await waitForCommit(txid)
       // The merchant's invoice turns paid once ORPay's watcher sees it.
@@ -89,9 +99,46 @@ export async function renderCheckout(id) {
     } catch (e) {
       err.textContent = e.message
       pay.disabled = false
-      pay.textContent = `Pay ${formatAmount(inv.amount)} ORP`
+      pay.textContent = `Pay ${money(inv.amount)} from wallet`
     }
   }
+  const card = ctx.$('#card')
+  if (card)
+    card.onclick = async () => {
+      const email = ctx.$('#card-email').value.trim()
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+        ctx.$('#err').textContent = 'Enter your email for the Paystack receipt.'
+        return
+      }
+      card.disabled = true
+      card.textContent = 'Opening Paystack…'
+      try {
+        const r = await gateway.cardPay(inv.id, email)
+        location.assign(r.authorization_url)
+      } catch (e) {
+        ctx.$('#err').textContent = e.message
+        card.disabled = false
+        card.textContent = 'Pay with card, bank or USSD (Paystack)'
+      }
+    }
+}
+
+// Back from Paystack: wait for the gateway to settle the card payment.
+async function awaitCardPayment(inv) {
+  const root = ctx.root()
+  root.innerHTML = `
+    <section class="card receipt">
+      <div class="spinner" aria-hidden="true"></div>
+      <h2>Confirming your payment…</h2>
+      <p class="muted" id="msg">Waiting for Paystack to confirm.</p>
+    </section>`
+  for (let i = 0; i < 60; i++) {
+    const latest = await api.invoice(inv.id).catch(() => null)
+    if (latest?.status === 'paid') return renderReceipt(latest)
+    await new Promise((r) => setTimeout(r, 2000))
+  }
+  const msg = ctx.$('#msg')
+  if (msg) msg.textContent = 'Still waiting. If you completed payment, the merchant will be notified once Paystack confirms.'
 }
 
 function renderReceipt(inv) {
@@ -102,7 +149,7 @@ function renderReceipt(inv) {
     <section class="card receipt">
       <div class="receipt-check" aria-hidden="true">✓</div>
       <h2>Payment complete</h2>
-      <p class="amount">${formatAmount(inv.amount)} <span class="unit">ORP</span></p>
+      <p class="amount">${formatMoney(inv.amount, inv.asset ?? '')}</p>
       <dl class="summary">
         <dt>Paid to</dt><dd>${ctx.esc(app.name)}</dd>
         ${inv.description ? `<dt>For</dt><dd>${ctx.esc(inv.description)}</dd>` : ''}

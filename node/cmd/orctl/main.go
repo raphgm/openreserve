@@ -16,6 +16,7 @@ import (
 
 	"github.com/openreserve/node/chain"
 	"github.com/openreserve/node/keys"
+	"github.com/openreserve/node/ledger"
 	"github.com/openreserve/node/mnemonic"
 	"github.com/openreserve/node/types"
 )
@@ -28,7 +29,8 @@ Usage:
   orctl words    -key FILE              show the 24 recovery words for a key
   orctl restore  -key FILE              create a key file from recovery words (read from stdin)
   orctl export-seed -key FILE           print the raw seed, e.g. for ORP_PROPOSER_SEED
-  orctl genesis  -chain-id ID -proposer ADDR [-min-fee ORP] [-alloc ADDR=ORP ...] > genesis.json
+  orctl genesis  -chain-id ID -proposer ADDR [-min-fee ORP] [-alloc ADDR=ORP ...]
+                 [-asset SYMBOL:ISSUER_ADDR:MIN_FEE[:DECIMALS[:NAME]] ...] > genesis.json
   orctl status
   orctl balance  ADDR | -key FILE
   orctl send     -key FILE -to ADDR -amount ORP [-fee ORP] [-memo TEXT] [-wait]
@@ -174,6 +176,31 @@ func exportSeed(args []string) error {
 	return nil
 }
 
+type assetFlag []ledger.AssetDef
+
+func (a *assetFlag) String() string { return "" }
+func (a *assetFlag) Set(v string) error {
+	parts := strings.SplitN(v, ":", 5)
+	if len(parts) < 3 {
+		return errors.New("expected SYMBOL:ISSUER_ADDR:MIN_FEE[:DECIMALS[:NAME]]")
+	}
+	fee, err := types.ParseAmount(parts[2])
+	if err != nil {
+		return err
+	}
+	def := ledger.AssetDef{Symbol: parts[0], Issuer: types.Address(parts[1]), MinFee: fee, Decimals: 2, Name: parts[0]}
+	if len(parts) > 3 {
+		if _, err := fmt.Sscanf(parts[3], "%d", &def.Decimals); err != nil {
+			return fmt.Errorf("decimals: %w", err)
+		}
+	}
+	if len(parts) > 4 {
+		def.Name = parts[4]
+	}
+	*a = append(*a, def)
+	return nil
+}
+
 type allocFlag []chain.Allocation
 
 func (a *allocFlag) String() string { return "" }
@@ -197,6 +224,8 @@ func genesis(args []string) error {
 	minFee := fs.String("min-fee", "0.001", "minimum tx fee in ORP")
 	var allocs allocFlag
 	fs.Var(&allocs, "alloc", "initial balance ADDR=ORP (repeatable)")
+	var assets assetFlag
+	fs.Var(&assets, "asset", "issued asset SYMBOL:ISSUER_ADDR:MIN_FEE[:DECIMALS[:NAME]] (repeatable)")
 	fs.Parse(args)
 	fee, err := types.ParseAmount(*minFee)
 	if err != nil {
@@ -204,7 +233,7 @@ func genesis(args []string) error {
 	}
 	g := &chain.Genesis{
 		ChainID: *chainID, Time: time.Now().UnixMilli(), Proposer: types.Address(*proposer),
-		MinFee: fee, Allocations: allocs,
+		MinFee: fee, Allocations: allocs, Assets: assets,
 	}
 	if g.Allocations == nil {
 		g.Allocations = []chain.Allocation{}

@@ -1,7 +1,7 @@
 // Savings pools (ajo/esusu). Everything shown here is read from the chain:
 // the pool's balance, who has paid this round, who has received their pot,
 // who is next, and a timeline of every join, contribution and claim.
-import { formatAmount, node, parseAmount, poolOp, waitForCommit } from './orp.js'
+import { assetLabel, formatMoney, node, parseAmount, poolOp, waitForCommit } from './orp.js'
 
 let ctx // { state, $, esc, short, toast, nameOf, resolveRecipient, root }
 
@@ -55,7 +55,7 @@ export async function renderPools() {
           <span class="pool-avatar">${ctx.esc(p.name.slice(0, 1).toUpperCase())}</span>
           <span class="who">
             <strong>${ctx.esc(p.name)}</strong>
-            <small>${formatAmount(p.contribution)} ORP each · ${p.members.length} members · ${
+            <small>${formatMoney(p.contribution, p.asset ?? '')} each · ${p.members.length} members · ${
               p.status === 'active' ? `round ${p.round + 1} of ${p.members.length}` : p.status
             }</small>
           </span>
@@ -74,7 +74,8 @@ function renderCreate() {
       <h2>New savings pool</h2>
       <form id="f" class="stack" autocomplete="off">
         <label>Pool name<input id="name" maxlength="64" placeholder="Family ajo" required></label>
-        <label>Contribution per round (ORP)<input id="amount" inputmode="decimal" placeholder="50" required></label>
+        ${ctx.currencies().length > 1 ? `<div class="seg" role="radiogroup" aria-label="Currency">${ctx.currencies().map((c) => `<button type="button" role="radio" data-cur="${c}">${assetLabel(c)}</button>`).join('')}</div>` : ''}
+        <label>Contribution per round<input id="amount" inputmode="decimal" placeholder="5,000" required></label>
         <label>Members in payout order
           <textarea id="members" rows="5" placeholder="One per line: @username or address&#10;The first person receives the first pot."></textarea>
         </label>
@@ -84,13 +85,21 @@ function renderCreate() {
       </form>
     </section>`
   ctx.$('#back').onclick = renderPools
+  let asset = ctx.currencies()[0]
+  const setAsset = (a) => {
+    asset = a
+    root.querySelectorAll('[data-cur]').forEach((b) => b.setAttribute('aria-checked', b.dataset.cur === a))
+  }
+  root.querySelectorAll('[data-cur]').forEach((b) => (b.onclick = () => setAsset(b.dataset.cur)))
+  setAsset(asset)
   ctx.$('#f').onsubmit = async (e) => {
     e.preventDefault()
     const err = ctx.$('#err')
     const btn = ctx.$('#go')
     err.textContent = ''
     try {
-      const contribution = parseAmount(ctx.$('#amount').value)
+      const contribution = parseAmount(ctx.$('#amount').value.replace(/,/g, ''))
+      if (asset === 'NGN' && contribution % 10_000n !== 0n) throw new Error('Naira amounts can have at most 2 decimals.')
       if (contribution === 0n) throw new Error('Contribution must be more than 0.')
       const refs = ctx.$('#members').value.split(/[\n,]+/).map((s) => s.trim()).filter(Boolean)
       const members = []
@@ -104,7 +113,7 @@ function renderCreate() {
       btn.disabled = true
       btn.textContent = 'Creating…'
       const id = await poolOp({
-        seed: ctx.state.seed, op: 'create', name: ctx.$('#name').value.trim(), members, contribution,
+        seed: ctx.state.seed, op: 'create', name: ctx.$('#name').value.trim(), members, contribution, asset,
       })
       await waitForCommit(id)
       ctx.toast('Pool created. Share it with the members so they can join.')
@@ -163,6 +172,7 @@ export async function renderPool(id, preloaded) {
     return
   }
   const { pool: p, pot, history } = data
+  const money = (x) => formatMoney(x, p.asset ?? '')
   await ctx.resolveNames(p.members)
   const n = p.members.length
   const me = p.members.indexOf(ctx.state.address)
@@ -196,11 +206,11 @@ export async function renderPool(id, preloaded) {
   else if (p.status === 'forming') action = `<p class="muted small-text">Waiting for ${n - p.joined.filter(Boolean).length} member(s) to join.</p>`
   else if (p.status === 'active') {
     const btns = []
-    if (!p.paid[me]) btns.push(`<button class="primary" data-op="contribute">Pay my ${formatAmount(p.contribution)} ORP</button>`)
+    if (!p.paid[me]) btns.push(`<button class="primary" data-op="contribute">Pay my ${money(p.contribution)}</button>`)
     if (me === p.round) {
       btns.push(
         paidCount === n
-          ? `<button class="primary" data-op="claim">Take my ${formatAmount(pot)} ORP</button>`
+          ? `<button class="primary" data-op="claim">Take my ${money(pot)}</button>`
           : `<p class="muted small-text">It's your turn. You can take the pot once all ${n} members have paid (${paidCount}/${n} so far).</p>`,
       )
     }
@@ -213,10 +223,10 @@ export async function renderPool(id, preloaded) {
       <button class="link back light" id="back">← Pools</button>
       <div class="pool-title"><h2>${ctx.esc(p.name)}</h2>${statusChip(p)}</div>
       <p class="label">Pool balance</p>
-      <p class="amount">${formatAmount(p.balance)} <span class="unit">ORP</span></p>
+      <p class="amount">${money(p.balance)}</p>
       <div class="pool-stats">
-        <div><span>Pot</span><strong>${formatAmount(pot)} ORP</strong></div>
-        <div><span>Each pays</span><strong>${formatAmount(p.contribution)} ORP</strong></div>
+        <div><span>Pot</span><strong>${money(pot)}</strong></div>
+        <div><span>Each pays</span><strong>${money(p.contribution)}</strong></div>
         <div><span>Round</span><strong>${p.status === 'done' ? `${n} of ${n}` : p.status === 'active' ? `${p.round + 1} of ${n}` : '—'}</strong></div>
       </div>
       ${p.status === 'active' ? `
@@ -239,8 +249,8 @@ export async function renderPool(id, preloaded) {
           const text = {
             create: `${who} created the pool`,
             join: `${who} joined`,
-            contribute: `${who} paid ${formatAmount(p.contribution)} ORP · round ${e.round + 1}`,
-            claim: `${who} took the ${formatAmount(pot)} ORP pot · round ${e.round + 1}`,
+            contribute: `${who} paid ${money(p.contribution)} · round ${e.round + 1}`,
+            claim: `${who} took the ${money(pot)} pot · round ${e.round + 1}`,
           }[e.op]
           const when = new Date(e.time).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
           return `<li class="ev-${e.op}"><span class="ev-dot"></span><span class="who"><strong>${text}</strong><small>${when} · block ${e.height} · tx ${ctx.short(e.id)}</small></span></li>`
@@ -264,9 +274,9 @@ export async function renderPool(id, preloaded) {
         b.disabled = true
         b.textContent = 'Confirming…'
         try {
-          const txid = await poolOp({ seed: ctx.state.seed, op, id: p.id })
+          const txid = await poolOp({ seed: ctx.state.seed, op, id: p.id, asset: p.asset ?? '' })
           await waitForCommit(txid)
-          ctx.toast({ join: 'Joined the pool', contribute: 'Contribution paid', claim: `You received ${formatAmount(pot)} ORP` }[op])
+          ctx.toast({ join: 'Joined the pool', contribute: 'Contribution paid', claim: `You received ${money(pot)}` }[op])
           renderPool(p.id)
         } catch (err) {
           ctx.$('#err').textContent = err.message

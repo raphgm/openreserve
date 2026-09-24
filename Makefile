@@ -1,4 +1,4 @@
-.PHONY: build test lint devnet-init devnet-up run orpay-backend orpay clean
+.PHONY: build test lint devnet-init devnet-up run orpay-backend orpay gateway clean
 
 BIN := bin
 
@@ -18,9 +18,11 @@ devnet-init: build
 	mkdir -p devnet
 	$(BIN)/orctl keygen -key devnet/proposer.json > /dev/null
 	$(BIN)/orctl keygen -key devnet/alice.json > /dev/null
+	$(BIN)/orctl keygen -key devnet/issuer.json > /dev/null
 	$(BIN)/orctl genesis -chain-id openreserve-devnet-1 \
 		-proposer $$($(BIN)/orctl address -key devnet/proposer.json) \
-		-alloc $$($(BIN)/orctl address -key devnet/alice.json)=1000000 > devnet/genesis.json
+		-alloc $$($(BIN)/orctl address -key devnet/alice.json)=1000000 \
+		-asset "NGN:$$($(BIN)/orctl address -key devnet/issuer.json):0.01:2:Nigerian naira" > devnet/genesis.json
 	@# Seeds for the Docker devnet, passed as env vars instead of readable key files.
 	umask 077 && printf 'ORP_PROPOSER_SEED=%s\nORPAY_FAUCET_SEED=%s\n' \
 		$$($(BIN)/orctl export-seed -key devnet/proposer.json) \
@@ -37,7 +39,19 @@ run: build
 # ORPay backend (usernames + devnet faucet funded by alice). Needs `make run`.
 orpay-backend:
 	@chmod 600 devnet/alice.json
-	cd apps/orpay/backend && go run . -db ../../../devnet/orpay-users.json -faucet-key ../../../devnet/alice.json
+	cd apps/orpay/backend && go run . -db ../../../devnet/orpay-users.json -faucet-key ../../../devnet/alice.json \
+		$$(grep -q '"assets"' ../../../devnet/genesis.json && echo -default-currency NGN -card-payments) \
+		$${ORPAY_ADMINS:+-admins $$ORPAY_ADMINS} -allow-private-webhooks
+
+# Paystack naira gateway. Put PAYSTACK_SECRET_KEY=sk_test_... in devnet/paystack.env
+# (chmod 600, never committed). Test keys move no real money.
+gateway:
+	@test -f devnet/paystack.env || (echo "create devnet/paystack.env with PAYSTACK_SECRET_KEY=sk_test_..." && exit 1)
+	@test -f devnet/issuer.json || (echo "this devnet has no NGN issuer; run: rm -rf devnet && make devnet-init" && exit 1)
+	@chmod 600 devnet/paystack.env devnet/issuer.json
+	cd apps/gateway && set -a && . ../../devnet/paystack.env && set +a && \
+		ORP_ISSUER_SEED=$$(../../$(BIN)/orctl export-seed -key ../../devnet/issuer.json) \
+		go run . -data ../../devnet/gateway-data
 
 # ORPay web app on http://localhost:5173 (proxies to the node and backend).
 orpay:

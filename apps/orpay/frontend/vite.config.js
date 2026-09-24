@@ -8,6 +8,7 @@ export default defineConfig({
     proxy: {
       '/v1': process.env.ORP_NODE ?? 'http://localhost:8080',
       '/api': process.env.ORPAY_BACKEND ?? 'http://localhost:4000',
+      '/pay': process.env.ORPAY_GATEWAY ?? 'http://localhost:4100',
     },
   },
 })

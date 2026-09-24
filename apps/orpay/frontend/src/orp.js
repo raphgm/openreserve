@@ -28,6 +28,18 @@ export function parseAmount(s) {
   return micro
 }
 
+// Currency display: NGN as naira with 2 decimals, ORP as a plain decimal.
+export function formatMoney(micro, asset = '') {
+  if (asset === 'NGN') {
+    const kobo = BigInt(micro) / 10_000n
+    const naira = Number(kobo) / 100
+    return '₦' + naira.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  }
+  return `${formatAmount(micro)} ${asset || 'ORP'}`
+}
+
+export const assetLabel = (asset) => (asset === 'NGN' ? 'Naira (₦)' : asset || 'ORP')
+
 export function formatAmount(micro) {
   const v = BigInt(micro)
   const frac = (v % UNIT).toString().padStart(6, '0').replace(/0+$/, '')
@@ -67,7 +79,7 @@ class Encoder {
 // fields appended (see node/types.Tx.SignBytes).
 export function txSignBytes(tx) {
   const e = new Encoder()
-  e.str(tx.pool ? 'openreserve/tx/v2' : 'openreserve/tx/v1')
+  e.str(tx.pool || tx.kind || tx.asset ? 'openreserve/tx/v2' : 'openreserve/tx/v1')
   e.str(tx.chain_id)
   e.str(tx.from)
   e.str(tx.to ?? '')
@@ -75,7 +87,12 @@ export function txSignBytes(tx) {
   e.u64(tx.fee)
   e.u64(tx.nonce)
   e.str(tx.memo ?? '')
+  const v2 = tx.pool || tx.kind || tx.asset
+  if (!v2) return e.bytes()
+  e.str(tx.kind ?? '')
+  e.str(tx.asset ?? '')
   if (tx.pool) {
+    e.parts.push(new Uint8Array([1]))
     const p = tx.pool
     e.str(p.op)
     e.parts.push(p.id ? fromHex(p.id) : new Uint8Array(32))
@@ -84,6 +101,8 @@ export function txSignBytes(tx) {
     e.u64(members.length)
     for (const m of members) e.str(m)
     e.u64(p.contribution ?? 0)
+  } else {
+    e.parts.push(new Uint8Array([0]))
   }
   return e.bytes()
 }
@@ -125,6 +144,9 @@ export const node = {
   pools: (addr) => call(`/v1/accounts/${addr}/pools`),
   submit: (tx) => {
     const body = { ...tx, amount: Number(tx.amount), fee: Number(tx.fee) }
+    if (!body.kind) delete body.kind
+    if (!body.asset) delete body.asset
+    if (tx.pool || tx.kind === 'burn') if (!body.to) delete body.to
     if (tx.pool) {
       body.pool = { ...tx.pool }
       if (body.pool.contribution != null) body.pool.contribution = Number(body.pool.contribution)
@@ -137,28 +159,34 @@ export const node = {
 
 // Sign and submit a savings-pool operation. For "create" the returned tx id
 // is also the new pool's id.
-export async function poolOp({ seed, op, id, name, members, contribution }) {
+export async function poolOp({ seed, op, id, name, members, contribution, asset = '' }) {
   const from = await addressOf(seed)
   const [st, acc] = await Promise.all([node.status(), node.account(from)])
   const pool = { op }
   if (id) pool.id = id
   if (op === 'create') Object.assign(pool, { name, members, contribution: BigInt(contribution) })
   const tx = await signTx(
-    { chain_id: st.chain_id, from, to: '', amount: 0n, fee: BigInt(st.min_fee), nonce: acc.next_nonce, memo: '', pool },
+    { chain_id: st.chain_id, from, to: '', amount: 0n, fee: feeFor(st, asset), nonce: acc.next_nonce, memo: '', pool, ...(asset ? { asset } : {}) },
     seed,
   )
   return (await node.submit(tx)).id
 }
 
 // Build, sign and submit a transfer. Returns the tx id.
-export async function send({ seed, to, amount, memo = '' }) {
+export function feeFor(status, asset = '') {
+  if (!asset) return BigInt(status.min_fee)
+  const a = (status.assets ?? []).find((x) => x.symbol === asset)
+  return BigInt(a?.min_fee ?? 0)
+}
+
+export async function send({ seed, to, amount, memo = '', asset = '', kind = '' }) {
   const from = await addressOf(seed)
   const [st, acc] = await Promise.all([node.status(), node.account(from)])
-  const tx = await signTx(
-    { chain_id: st.chain_id, from, to, amount, fee: BigInt(st.min_fee), nonce: acc.next_nonce, memo },
-    seed,
-  )
-  const res = await node.submit(tx)
+  const tx = { chain_id: st.chain_id, from, to, amount, fee: feeFor(st, asset), nonce: acc.next_nonce, memo }
+  if (asset) tx.asset = asset
+  if (kind) tx.kind = kind
+  const signed = await signTx(tx, seed)
+  const res = await node.submit(signed)
   return res.id
 }
 
@@ -237,4 +265,18 @@ export function readPayLink(search = location.search) {
   const to = q.get('to')
   if (!to) return null
   return { to, amount: q.get('amount') ?? '', memo: (q.get('memo') ?? '').slice(0, 140) }
+}
+
+// Paystack gateway: add naira, withdraw to a bank, pay checkouts by card.
+export const gateway = {
+  config: () => call('/pay/config'),
+  deposit: (seed, amount, email) => signedCall(seed, 'POST', '/pay/deposits', { amount, email }),
+  deposit_status: (ref) => call(`/pay/deposits/${encodeURIComponent(ref)}`),
+  banks: () => call('/pay/banks'),
+  resolve: (account_number, bank_code) =>
+    call('/pay/banks/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account_number, bank_code }) }),
+  withdraw: (seed, body) => signedCall(seed, 'POST', '/pay/withdrawals', body),
+  withdrawals: (seed) => signedCall(seed, 'GET', '/pay/withdrawals'),
+  cardPay: (invoice, email) =>
+    call(`/pay/invoices/${encodeURIComponent(invoice)}/card`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }),
 }

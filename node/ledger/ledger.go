@@ -162,6 +162,25 @@ func New(minFee types.Amount) *State {
 	}
 }
 
+// Normalize replaces nil maps after decoding a snapshot.
+func (s *State) Normalize() {
+	if s.Accounts == nil {
+		s.Accounts = map[types.Address]Account{}
+	}
+	if s.Pools == nil {
+		s.Pools = map[types.Hash]*Pool{}
+	}
+	if s.AssetDefs == nil {
+		s.AssetDefs = map[string]AssetDef{}
+	}
+	if s.AssetSupply == nil {
+		s.AssetSupply = map[string]types.Amount{}
+	}
+	if s.Escrows == nil {
+		s.Escrows = map[types.Hash]*Escrow{}
+	}
+}
+
 // Escrow returns a copy of an escrow, or nil.
 func (s *State) Escrow(id types.Hash) *Escrow {
 	if e, ok := s.Escrows[id]; ok {

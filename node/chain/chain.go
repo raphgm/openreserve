@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -55,6 +56,11 @@ type Chain struct {
 	notify   chan struct{} // closed and replaced whenever a block is committed
 	// Clock returns the current time in unix ms; tests replace it.
 	Clock func() int64
+	// SnapshotEvery sets how often the state is snapshotted (0 disables).
+	SnapshotEvery int
+	// ReplayedFrom is the height startup replay began after (0 = genesis).
+	ReplayedFrom uint64
+	dataDir      string
 }
 
 // Open loads the chain from dataDir, replaying and re-verifying every block.
@@ -77,8 +83,23 @@ func Open(dataDir string, g *Genesis) (*Chain, error) {
 		mempool:  map[types.Hash]pendingTx{},
 		notify:   make(chan struct{}),
 		Clock:    func() int64 { return time.Now().UnixMilli() },
+		dataDir:  dataDir, SnapshotEvery: DefaultSnapshotEvery,
+	}
+	// Start from a verified snapshot when there is one: blocks up to it are
+	// only indexed, not re-executed.
+	snap, err := loadSnapshot(dataDir, stored)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "ignoring snapshot, replaying from genesis: %v\n", err)
 	}
 	for _, b := range stored {
+		if snap != nil && b.Header.Height <= snap.Height {
+			c.blocks = append(c.blocks, b)
+			c.index(b)
+			if b.Header.Height == snap.Height {
+				c.state, c.ReplayedFrom = snap.State, snap.Height
+			}
+			continue
+		}
 		next, err := c.verify(b)
 		if err != nil {
 			log.close()
@@ -286,6 +307,22 @@ func (c *Chain) verify(b *types.Block) (*ledger.State, error) {
 func (c *Chain) commit(b *types.Block, next *ledger.State) {
 	c.state = next
 	c.blocks = append(c.blocks, b)
+	c.index(b)
+	// Drop pending txs whose nonce was consumed by this block.
+	for id, p := range c.mempool {
+		if p.tx.Nonce < c.state.Get(p.tx.From).Nonce {
+			delete(c.mempool, id)
+		}
+	}
+	if err := c.maybeSnapshot(); err != nil {
+		fmt.Fprintf(os.Stderr, "snapshot at height %d failed: %v\n", b.Header.Height, err)
+	}
+	close(c.notify)
+	c.notify = make(chan struct{})
+}
+
+// index records a committed block's txs in the lookup indexes.
+func (c *Chain) index(b *types.Block) {
 	for i, tx := range b.Txs {
 		id := tx.ID()
 		loc := TxLocation{Height: b.Header.Height, Index: i}
@@ -312,14 +349,6 @@ func (c *Chain) commit(b *types.Block, next *ledger.State) {
 		}
 		delete(c.mempool, id)
 	}
-	// Drop pending txs whose nonce was consumed by this block.
-	for id, p := range c.mempool {
-		if p.tx.Nonce < c.state.Get(p.tx.From).Nonce {
-			delete(c.mempool, id)
-		}
-	}
-	close(c.notify)
-	c.notify = make(chan struct{})
 }
 
 // Status summarizes the chain.

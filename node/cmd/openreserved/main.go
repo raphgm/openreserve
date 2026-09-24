@@ -64,6 +64,9 @@ func main() {
 	defer c.Close()
 	st := c.Status()
 	log.Printf("chain %s loaded at height %d, state root %s", st.ChainID, st.Height, st.StateRoot)
+	if c.ReplayedFrom > 0 {
+		log.Printf("resumed from snapshot at height %d; re-executed %d blocks", c.ReplayedFrom, st.Height-c.ReplayedFrom)
+	}
 
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

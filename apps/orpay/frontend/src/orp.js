@@ -270,6 +270,7 @@ export const api = {
   reviewApp: (seed, id, decision, note = '') => signedCall(seed, 'POST', `/api/apps/${id}/review`, { decision, note }),
   rotateKey: (seed, id) => signedCall(seed, 'POST', `/api/apps/${id}/keys`),
   updateApp: (seed, id, body) => signedCall(seed, 'POST', `/api/apps/${id}/settings`, body),
+  refreshLogo: (seed, id) => signedCall(seed, 'POST', `/api/apps/${id}/logo`),
   resolve: (username) => call(`/api/users/${encodeURIComponent(username)}`),
   lookup: (addr) => call(`/api/addresses/${addr}`),
   register: (body) =>
@@ -327,3 +328,13 @@ export const gateway = {
 }
 
 export const providerLabel = (p) => ({ paystack: 'Paystack', flutterwave: 'Flutterwave' })[p] ?? p
+
+// Partner mark: the partner's own logo when we have one, else its initial.
+export function partnerMark(partner, cls = 'partner-mark') {
+  const name = partner.brand_name || partner.name || '?'
+  const esc = (v) => String(v).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
+  if (partner.logo_url && partner.status === 'approved') {
+    return `<img class="${cls} logo-img" src="${esc(API_BASE + partner.logo_url)}" alt="" loading="lazy">`
+  }
+  return `<span class="${cls}" aria-hidden="true">${esc(name.slice(0, 1).toUpperCase())}</span>`
+}

@@ -45,6 +45,10 @@ type App struct {
 	// Co-branding shown next to ORPay on this app's checkout and escrow pages.
 	BrandName  string `json:"brand_name,omitempty"`  // defaults to Name
 	BrandColor string `json:"brand_color,omitempty"` // #rrggbb
+	// Logo fetched automatically from Website (see logo.go).
+	LogoType   string    `json:"logo_type,omitempty"`
+	LogoSource string    `json:"logo_source,omitempty"`
+	LogoAt     time.Time `json:"logo_at,omitzero"`
 	// ArbiterAddr settles disputes on this app's escrows (default: Owner).
 	ArbiterAddr types.Address `json:"arbiter_address,omitempty"`
 	CreatedAt   time.Time     `json:"created_at"`
@@ -71,8 +75,12 @@ func (a *App) public() map[string]any {
 	if brand == "" {
 		brand = a.Name
 	}
-	return map[string]any{"id": a.ID, "name": a.Name, "website": a.Website, "status": a.Status,
+	v := map[string]any{"id": a.ID, "name": a.Name, "website": a.Website, "status": a.Status,
 		"brand_name": brand, "brand_color": a.BrandColor}
+	if a.LogoType != "" && a.Status == AppApproved {
+		v["logo_url"] = fmt.Sprintf("/api/apps/%s/logo?v=%d", a.ID, a.LogoAt.Unix())
+	}
+	return v
 }
 
 // forOwner hides the key hash but includes the webhook secret.
@@ -237,6 +245,9 @@ func (s *server) reviewApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	out.KeyHash, out.WebhookSecret = "", ""
+	if status == AppApproved {
+		go s.refreshLogo(out.ID) // co-branding picks up the partner's logo
+	}
 	writeJSON(w, http.StatusOK, out)
 }
 
@@ -276,6 +287,7 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 		Settlement *types.Address `json:"settlement_address"`
 		Arbiter    *types.Address `json:"arbiter_address"`
 		BrandName  *string        `json:"brand_name"`
+		Website    *string        `json:"website"`
 		BrandColor *string        `json:"brand_color"`
 	}
 	if err := decodeBody(r, &req); err != nil {
@@ -283,6 +295,7 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out App
+	websiteChanged := false
 	err := s.ownedApp(r, func(a *App) error {
 		if req.WebhookURL != nil {
 			if *req.WebhookURL != "" {
@@ -291,6 +304,13 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			a.WebhookURL = *req.WebhookURL
+		}
+		if req.Website != nil && *req.Website != a.Website {
+			if err := validURL(*req.Website, false); err != nil {
+				return errors.New("enter your website, e.g. https://gabis.pages.dev")
+			}
+			a.Website = *req.Website
+			websiteChanged = true
 		}
 		if req.BrandName != nil {
 			n := strings.TrimSpace(*req.BrandName)
@@ -325,6 +345,9 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
+	}
+	if websiteChanged && out.Status == AppApproved {
+		go s.refreshLogo(out.ID)
 	}
 	writeJSON(w, http.StatusOK, out)
 }

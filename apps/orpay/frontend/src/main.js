@@ -1,6 +1,6 @@
 import './style.css'
 import {
-  addressOf, api, assetLabel, feeFor, formatAmount, formatMoney, fromHex, gateway, isAddress, newSeed, node, parseAmount,
+  addressOf, api, assetLabel, partnerMark, feeFor, formatAmount, formatMoney, fromHex, gateway, isAddress, newSeed, node, parseAmount,
   payLink, readPayLink, registerMessage, seedToWords, send, signMessage, waitForCommit, wordsToSeed,
 } from './orp.js'
 import { renderSVG } from 'uqr'
@@ -736,7 +736,7 @@ function cobrand(partner) {
   }
   const name = partner.brand_name || partner.name
   logo.classList.add('cobrand')
-  logo.innerHTML = `<span class="partner-mark" aria-hidden="true">${esc(name.slice(0, 1).toUpperCase())}</span><span class="partner-name">${esc(name)}</span><span class="cobrand-x">×</span><span class="cobrand-orpay">ORPay</span>`
+  logo.innerHTML = `${partnerMark(partner)}<span class="partner-name">${esc(name)}</span><span class="cobrand-x">×</span><span class="cobrand-orpay">ORPay</span>`
   logo.setAttribute('aria-label', `${name} with ORPay`)
   if (/^#[0-9a-f]{6}$/i.test(partner.brand_color ?? '')) root.style.setProperty('--partner', partner.brand_color)
   else root.style.removeProperty('--partner')
@@ -747,14 +747,17 @@ initDevelopers(ctx)
 initMoney(ctx)
 initEscrow(ctx)
 
-function renderGuestCheckout(invoice) {
+async function renderGuestCheckout(invoice) {
   app.innerHTML = `
     <header id="header"><span class="logo">ORPay</span><span class="net"></span>
       <button class="chip" id="signin">${hasVault() ? 'Unlock wallet' : 'Open ORPay'}</button></header>
     <main class="wallet" id="view"></main>`
   $('#signin').onclick = ctx.requireWallet
-  node.status().then((st) => (state.status = st)).catch(() => {})
-  gateway.config().then((g) => (state.gateway = g)).catch(() => {})
+  // Load network status (fees) and payment providers before drawing the page.
+  await Promise.all([
+    node.status().then((st) => (state.status = st)).catch(() => {}),
+    gateway.config().then((g) => (state.gateway = g)).catch(() => {}),
+  ])
   renderCheckout(invoice.invoice, invoice.card)
 }
 

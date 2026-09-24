@@ -1,7 +1,7 @@
 // Smart escrow: funds locked on-chain between a buyer and a seller, released
 // in milestones by the buyer, with an independent arbiter for disputes and
 // timeouts so money is never stuck. Everything shown is read from the chain.
-import { api, assetLabel, escrowOp, formatMoney, node, parseAmount, waitForCommit } from './orp.js'
+import { api, assetLabel, escrowOp, formatMoney, node, parseAmount, partnerMark, waitForCommit } from './orp.js'
 
 let ctx
 
@@ -352,7 +352,7 @@ export async function renderFundRequest(id) {
     <section class="card checkout">
       <p class="label">Fund escrow</p>
       <div class="merchant">
-        <span class="pool-avatar escrow-avatar ${app.status === 'approved' ? 'partner-bg' : ''}">⛨</span>
+        ${app.status === 'approved' ? partnerMark(app, 'pool-avatar partner-bg') : '<span class="pool-avatar escrow-avatar">⛨</span>'}
         <span class="who"><strong>${ctx.esc(app.brand_name || app.name)} ${app.status === 'approved' ? '<span class="chip-s ok">Verified</span>' : '<span class="chip-s warn">Not verified</span>'}</strong>
         <small>${ctx.esc(r.description || 'Payment held in escrow until milestones are approved')}</small></span>
       </div>

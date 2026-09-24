@@ -1,7 +1,7 @@
 // Developer portal: companies (Gabis, Paynautik, or anyone else) request to
 // use OpenReserve payments, admins review requests, and approved apps manage
 // API keys, webhooks and their settlement address.
-import { api, isAddress } from './orp.js'
+import { api, isAddress, partnerMark } from './orp.js'
 
 let ctx
 
@@ -100,11 +100,17 @@ function appCard(a) {
         </div>
         <label>Webhook URL<input data-field="webhook_url" value="${ctx.esc(a.webhook_url ?? '')}" placeholder="https://your-app.com/orpay/webhook"></label>
         <label>Settlement wallet (receives payments)<input data-field="settlement_address" class="mono" value="${ctx.esc(a.settlement_address)}"></label>
+        <label>Website <span class="muted">(your logo is taken from here automatically)</span><input data-field="website" value="${ctx.esc(a.website)}" placeholder="https://gabis.pages.dev"></label>
+        <div class="logo-row">
+          ${a.logo_type ? partnerMark({ ...a, status: 'approved', logo_url: `/api/apps/${a.id}/logo?v=${Date.parse(a.logo_at) || 0}` }, 'pool-avatar') : '<span class="pool-avatar muted-bg">?</span>'}
+          <span class="small-text muted">${a.logo_type ? `Logo from <span class="mono">${ctx.esc(new URL(a.logo_source).host)}</span>, refreshed daily` : 'No logo found yet on your website.'}</span>
+          <button class="ghost small" data-act="logo">Refresh logo</button>
+        </div>
         <div class="brand-edit">
           <label>Brand name shown beside ORPay<input data-field="brand_name" maxlength="40" value="${ctx.esc(a.brand_name ?? '')}" placeholder="${ctx.esc(a.name)}"></label>
           <label>Brand colour<input data-field="brand_color" type="color" value="${ctx.esc(a.brand_color || '#4f46e5')}"></label>
         </div>
-        <div class="brand-preview" data-preview><span class="logo cobrand"><span class="partner-mark">${ctx.esc((a.brand_name || a.name).slice(0, 1).toUpperCase())}</span><span class="partner-name">${ctx.esc(a.brand_name || a.name)}</span><span class="cobrand-x">×</span><span class="cobrand-orpay">ORPay</span></span></div>
+        <div class="brand-preview" data-preview><span class="logo cobrand">${a.logo_type ? partnerMark({ ...a, status: 'approved', logo_url: `/api/apps/${a.id}/logo?v=${Date.parse(a.logo_at) || 0}` }) : `<span class="partner-mark">${ctx.esc((a.brand_name || a.name).slice(0, 1).toUpperCase())}</span>`}<span class="partner-name">${ctx.esc(a.brand_name || a.name)}</span><span class="cobrand-x">×</span><span class="cobrand-orpay">ORPay</span></span></div>
         <label>Escrow arbiter (settles disputes; defaults to your wallet)<input data-field="arbiter_address" class="mono" value="${ctx.esc(a.arbiter_address ?? '')}" placeholder="${ctx.esc(a.owner)}"></label>
         <button class="ghost small" data-act="save">Save settings</button>
         <details>
@@ -174,13 +180,29 @@ function bindAppCards(apps) {
       const update = () => {
         const n = nameIn.value.trim() || a.name
         preview.querySelector('.partner-name').textContent = n
-        preview.querySelector('.partner-mark').textContent = n.slice(0, 1).toUpperCase()
+        const mark = preview.querySelector('span.partner-mark')
+        if (mark) mark.textContent = n.slice(0, 1).toUpperCase()
         preview.style.setProperty('--partner', colorIn.value)
       }
       nameIn.oninput = update
       colorIn.oninput = update
       update()
     }
+    const logoBtn = card.querySelector('[data-act="logo"]')
+    if (logoBtn)
+      logoBtn.onclick = async () => {
+        logoBtn.disabled = true
+        logoBtn.textContent = 'Fetching…'
+        try {
+          await api.refreshLogo(ctx.state.seed, a.id)
+          ctx.toast('Logo updated from your website')
+          renderDevelopers()
+        } catch (err) {
+          ctx.toast(err.message, 'err')
+          logoBtn.disabled = false
+          logoBtn.textContent = 'Refresh logo'
+        }
+      }
     const save = card.querySelector('[data-act="save"]')
     if (save)
       save.onclick = async () => {
@@ -191,9 +213,10 @@ function bindAppCards(apps) {
         if (arbiter_address && !isAddress(arbiter_address)) return ctx.toast('Arbiter must be a 64-character address', 'err')
         save.disabled = true
         try {
+          const website = card.querySelector('[data-field="website"]').value.trim()
           const brand_name = card.querySelector('[data-field="brand_name"]').value.trim()
           const brand_color = card.querySelector('[data-field="brand_color"]').value
-          await api.updateApp(ctx.state.seed, a.id, { webhook_url, settlement_address, arbiter_address, brand_name, brand_color })
+          await api.updateApp(ctx.state.seed, a.id, { webhook_url, settlement_address, arbiter_address, brand_name, brand_color, website })
           ctx.toast('Settings saved')
         } catch (err) {
           ctx.toast(err.message, 'err')

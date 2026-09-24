@@ -60,6 +60,7 @@ func main() {
 		log.Fatal(err)
 	}
 	go s.watchInvoices(*watchInterval)
+	go s.refreshLogos(24 * time.Hour)
 
 	handler := ratelimit.Middleware(ratelimit.New(300, 60), *trustProxy, s.routes(*trustProxy))
 	log.Printf("ORPay backend listening on %s (node %s)", *listen, *nodeURL)
@@ -87,6 +88,7 @@ type server struct {
 	invoices     *jsonstore.Store[map[string]*Invoice]
 	apps         *jsonstore.Store[map[string]*App]
 	escrows      *jsonstore.Store[map[string]*EscrowRequest]
+	stateDir     string
 	admins       []types.Address
 	publicURL    string
 	privateHooks bool
@@ -117,7 +119,7 @@ func newServer(cfg serverConfig) (*server, error) {
 		return nil, err
 	}
 	s := &server{
-		dir: dir, node: cfg.node, invoices: invoices, apps: apps, escrows: escrows, now: time.Now,
+		dir: dir, node: cfg.node, invoices: invoices, apps: apps, escrows: escrows, now: time.Now, stateDir: cfg.stateDir,
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
 		hookClient: webhookClient(cfg.privateHooks),
 	}
@@ -172,6 +174,8 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/apps", strict(5, 2, reqauth.Signed(s.requestApp)))
 	mux.HandleFunc("GET /api/apps", reqauth.Signed(s.listApps))
 	mux.HandleFunc("GET /api/apps/{id}", s.publicApp)
+	mux.HandleFunc("GET /api/apps/{id}/logo", s.serveLogo)
+	mux.Handle("POST /api/apps/{id}/logo", strict(10, 3, reqauth.Signed(s.refreshLogoHandler)))
 	mux.Handle("POST /api/apps/{id}/review", strict(30, 10, reqauth.Signed(s.reviewApp)))
 	mux.Handle("POST /api/apps/{id}/keys", strict(10, 3, reqauth.Signed(s.rotateKey)))
 	mux.Handle("POST /api/apps/{id}/settings", strict(30, 10, reqauth.Signed(s.updateApp)))

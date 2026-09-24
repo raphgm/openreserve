@@ -457,3 +457,9 @@ h2.spaced { margin-top: 24px; }
 .brand-preview { background: var(--surface-2); border-radius: 14px; padding: 14px 16px; }
 @media (max-width: 420px) { .partner-name { max-width: 6em; } }
 .pool-avatar.partner-bg { background: var(--partner, var(--brand-grad)); }
+img.logo-img { object-fit: contain; background: #fff; }
+img.partner-mark.logo-img { box-shadow: 0 0 0 1px var(--border); }
+img.pool-avatar.logo-img { padding: 4px; }
+.logo-row { display: flex; align-items: center; gap: 12px; }
+.logo-row .small-text { flex: 1; }
+.muted-bg { background: var(--surface-2) !important; color: var(--muted) !important; }

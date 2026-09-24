@@ -63,16 +63,28 @@ class Encoder {
   }
 }
 
+// Plain transfers use the v1 encoding; pool operations use v2 with the pool
+// fields appended (see node/types.Tx.SignBytes).
 export function txSignBytes(tx) {
   const e = new Encoder()
-  e.str('openreserve/tx/v1')
+  e.str(tx.pool ? 'openreserve/tx/v2' : 'openreserve/tx/v1')
   e.str(tx.chain_id)
   e.str(tx.from)
-  e.str(tx.to)
+  e.str(tx.to ?? '')
   e.u64(tx.amount)
   e.u64(tx.fee)
   e.u64(tx.nonce)
   e.str(tx.memo ?? '')
+  if (tx.pool) {
+    const p = tx.pool
+    e.str(p.op)
+    e.parts.push(p.id ? fromHex(p.id) : new Uint8Array(32))
+    e.str(p.name ?? '')
+    const members = p.members ?? []
+    e.u64(members.length)
+    for (const m of members) e.str(m)
+    e.u64(p.contribution ?? 0)
+  }
   return e.bytes()
 }
 
@@ -109,12 +121,33 @@ export const node = {
   account: (addr) => call(`/v1/accounts/${addr}`),
   history: (addr) => call(`/v1/accounts/${addr}/txs?limit=100`),
   tx: (id) => call(`/v1/txs/${id}`),
-  submit: (tx) =>
-    call('/v1/txs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...tx, amount: Number(tx.amount), fee: Number(tx.fee) }),
-    }),
+  pool: (id) => call(`/v1/pools/${id}`),
+  pools: (addr) => call(`/v1/accounts/${addr}/pools`),
+  submit: (tx) => {
+    const body = { ...tx, amount: Number(tx.amount), fee: Number(tx.fee) }
+    if (tx.pool) {
+      body.pool = { ...tx.pool }
+      if (body.pool.contribution != null) body.pool.contribution = Number(body.pool.contribution)
+      for (const k of Object.keys(body.pool)) if (body.pool[k] == null || body.pool[k] === '') delete body.pool[k]
+      if (!body.to) delete body.to
+    }
+    return call('/v1/txs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  },
+}
+
+// Sign and submit a savings-pool operation. For "create" the returned tx id
+// is also the new pool's id.
+export async function poolOp({ seed, op, id, name, members, contribution }) {
+  const from = await addressOf(seed)
+  const [st, acc] = await Promise.all([node.status(), node.account(from)])
+  const pool = { op }
+  if (id) pool.id = id
+  if (op === 'create') Object.assign(pool, { name, members, contribution: BigInt(contribution) })
+  const tx = await signTx(
+    { chain_id: st.chain_id, from, to: '', amount: 0n, fee: BigInt(st.min_fee), nonce: acc.next_nonce, memo: '', pool },
+    seed,
+  )
+  return (await node.submit(tx)).id
 }
 
 // Build, sign and submit a transfer. Returns the tx id.
@@ -139,7 +172,31 @@ export async function waitForCommit(id, timeoutMs = 20_000) {
   throw new Error('Timed out waiting for confirmation')
 }
 
+// Signed request to the ORPay backend: proves the caller controls the wallet.
+async function signedCall(seed, method, path, body) {
+  const data = body === undefined ? '' : JSON.stringify(body)
+  const ts = Date.now()
+  const hash = toHex(new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(data))))
+  const msg = `orpay/req/v1\n${method}\n${path}\n${ts}\n${hash}`
+  return call(path, {
+    method,
+    headers: {
+      'Content-Type': 'application/json',
+      'X-ORP-Address': await addressOf(seed),
+      'X-ORP-Time': String(ts),
+      'X-ORP-Sig': await signMessage(msg, seed),
+    },
+    body: data || undefined,
+  })
+}
+
 export const api = {
+  invoice: (id) => call(`/api/invoices/${encodeURIComponent(id)}`),
+  apps: (seed) => signedCall(seed, 'GET', '/api/apps'),
+  requestApp: (seed, body) => signedCall(seed, 'POST', '/api/apps', body),
+  reviewApp: (seed, id, decision, note = '') => signedCall(seed, 'POST', `/api/apps/${id}/review`, { decision, note }),
+  rotateKey: (seed, id) => signedCall(seed, 'POST', `/api/apps/${id}/keys`),
+  updateApp: (seed, id, body) => signedCall(seed, 'POST', `/api/apps/${id}/settings`, body),
   resolve: (username) => call(`/api/users/${encodeURIComponent(username)}`),
   lookup: (addr) => call(`/api/addresses/${addr}`),
   register: (body) =>

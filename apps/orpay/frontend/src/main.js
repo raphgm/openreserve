@@ -4,6 +4,9 @@ import {
   payLink, readPayLink, registerMessage, seedToWords, send, signMessage, waitForCommit, wordsToSeed,
 } from './orp.js'
 import { renderSVG } from 'uqr'
+import { initPools, renderPool, renderPools } from './pools.js'
+import { initCheckout, renderCheckout } from './checkout.js'
+import { initDevelopers, renderDevelopers } from './developers.js'
 import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './vault.js'
 
 const app = document.getElementById('app')
@@ -18,13 +21,21 @@ const state = {
   config: { faucet: false },
   names: new Map(), // address -> username cache
   tab: 'send',
+  view: 'home',
   online: true,
+  seen: null, // tx ids already shown, for incoming-payment notifications
 }
 
-// A pay link (?to=...) opened before unlocking is kept until the wallet opens.
+// Deep links opened before unlocking are kept until the wallet opens:
+// pay links (?to=...), partner checkouts (?invoice=...) and pools (?pool=...).
 const PENDING = 'orpay.pending'
 {
-  const req = readPayLink()
+  const q = new URLSearchParams(location.search)
+  const req = q.get('invoice')
+    ? { invoice: q.get('invoice') }
+    : q.get('pool')
+      ? { pool: q.get('pool') }
+      : readPayLink()
   if (req) {
     sessionStorage.setItem(PENDING, JSON.stringify(req))
     history.replaceState(null, '', location.pathname)
@@ -167,15 +178,81 @@ async function openWallet(seed, address) {
   renderWallet()
   api.config().then((c) => ((state.config = c), renderBalance())).catch(() => {})
   api.lookup(address).then((r) => ((state.username = r.username), renderHeader())).catch(() => {})
+  const ctx = {
+    state, $, esc, short, toast, resolveRecipient,
+    nameOf: (a) => state.names.get(a),
+    resolveNames: resolveAddrs,
+    root: () => $('#view'),
+    home: () => showView('home'),
+  }
+  initPools(ctx)
+  initCheckout(ctx)
+  initDevelopers(ctx)
   refresh()
   setInterval(refresh, 2000)
   const pending = sessionStorage.getItem(PENDING)
   if (pending) {
     sessionStorage.removeItem(PENDING)
     try {
-      renderSend(JSON.parse(pending))
+      const req = JSON.parse(pending)
+      if (req.invoice) showView('checkout', () => renderCheckout(req.invoice))
+      else if (req.pool) showView('pools', () => renderPool(req.pool))
+      else renderSend(req)
     } catch {}
   }
+}
+
+// Switch the main area between Home, Pools, Developers and Checkout.
+function showView(view, render) {
+  state.view = view
+  app.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false'))
+  window.scrollTo(0, 0)
+  if (view === 'home') {
+    $('#view').innerHTML = homeHTML()
+    bindHome()
+    return
+  }
+  ;(render ?? { pools: renderPools, developers: renderDevelopers }[view])()
+}
+
+function homeHTML() {
+  return `
+      <section class="card balance" id="balance"></section>
+      <section class="card">
+        <div class="tabs" role="tablist">
+          <button role="tab" data-tab="send">Send</button>
+          <button role="tab" data-tab="receive">Receive</button>
+        </div>
+        <div id="panel"></div>
+      </section>
+      <section class="card">
+        <h2>Activity</h2>
+        <ul class="activity" id="activity"><li class="empty">No payments yet.</li></ul>
+      </section>`
+}
+
+function bindHome() {
+  app.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => ((state.tab = b.dataset.tab), renderPanel())))
+  renderBalance()
+  renderPanel()
+  renderActivity()
+}
+
+// Tell the user about incoming payments that arrive while the app is open.
+function notifyIncoming(history) {
+  const ids = new Set(history.map((e) => e.id))
+  if (state.seen) {
+    for (const e of history) {
+      if (state.seen.has(e.id) || e.tx.to !== state.address) continue
+      const from = state.names.get(e.tx.from)
+      const msg = `Received ${formatAmount(e.tx.amount)} ORP${from ? ` from @${from}` : ''}`
+      toast(msg)
+      try {
+        if (document.hidden && Notification.permission === 'granted') new Notification('ORPay', { body: msg, icon: '/icon-192.png' })
+      } catch {}
+    }
+  }
+  state.seen = ids
 }
 
 async function refresh() {
@@ -185,6 +262,7 @@ async function refresh() {
     ])
     const changed = JSON.stringify(history) !== JSON.stringify(state.history)
     Object.assign(state, { status, account, history, online: true })
+    notifyIncoming(history)
     renderBalance()
     renderHeader()
     const fee = $('#fee')
@@ -200,38 +278,31 @@ async function refresh() {
 }
 
 async function resolveNames(history) {
-  const unknown = new Set()
-  for (const e of history) {
-    const other = e.tx.from === state.address ? e.tx.to : e.tx.from
-    if (!state.names.has(other)) unknown.add(other)
-  }
+  const n = await resolveAddrs(history.map((e) => (e.tx.from === state.address ? e.tx.to : e.tx.from)))
+  if (n) renderActivity()
+}
+
+// Look up usernames for addresses not yet in the cache. Returns how many.
+async function resolveAddrs(addrs) {
+  const unknown = [...new Set(addrs)].filter((a) => a && !state.names.has(a))
   await Promise.all(
-    [...unknown].map((a) => api.lookup(a).then((r) => state.names.set(a, r.username)).catch(() => state.names.set(a, null))),
+    unknown.map((a) => api.lookup(a).then((r) => state.names.set(a, r.username)).catch(() => state.names.set(a, null))),
   )
-  if (unknown.size) renderActivity()
+  return unknown.length
 }
 
 function renderWallet() {
   app.innerHTML = `
     <header id="header"></header>
-    <main class="wallet">
-      <section class="card balance" id="balance"></section>
-      <section class="card">
-        <div class="tabs" role="tablist">
-          <button role="tab" data-tab="send">Send</button>
-          <button role="tab" data-tab="receive">Receive</button>
-        </div>
-        <div id="panel"></div>
-      </section>
-      <section class="card">
-        <h2>Activity</h2>
-        <ul class="activity" id="activity"><li class="empty">No payments yet.</li></ul>
-      </section>
-    </main>`
-  app.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => ((state.tab = b.dataset.tab), renderPanel())))
+    <main class="wallet" id="view"></main>
+    <nav class="tabbar" aria-label="Main">
+      <button data-view="home"><span class="ti">⌂</span>Home</button>
+      <button data-view="pools"><span class="ti">◎</span>Pools</button>
+      <button data-view="developers"><span class="ti">⌘</span>Developers</button>
+    </nav>`
+  app.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => showView(b.dataset.view)))
   renderHeader()
-  renderBalance()
-  renderPanel()
+  showView('home')
 }
 
 function renderHeader() {
@@ -247,7 +318,10 @@ function renderHeader() {
       <span class="logo">ORPay</span>
       <span class="net" id="net"></span>
       <button class="chip" id="me">${who ? `@${esc(who)}` : 'Claim a username'}</button>`
-    $('#me').onclick = who ? () => ((state.tab = 'receive'), renderPanel()) : renderClaim
+    $('#me').onclick = () => {
+      if (state.view !== 'home') showView('home')
+      who ? ((state.tab = 'receive'), renderPanel()) : renderClaim()
+    }
   }
   $('#net').innerHTML = net
 }
@@ -408,6 +482,7 @@ function renderReceive() {
         <summary>Wallet settings</summary>
         <div class="stack">
           <button class="ghost small" id="reveal">Show recovery words</button>
+          <button class="ghost small" id="notify">Notify me about incoming payments</button>
           <button class="danger small" id="lock">Lock wallet</button>
         </div>
       </details>
@@ -447,6 +522,16 @@ function renderReceive() {
     if (confirm('Show your recovery words? Make sure nobody can see your screen.')) e.target.outerHTML = wordGrid(state.seed)
   }
   $('#lock').onclick = () => location.reload()
+  const nb = $('#notify')
+  if (!('Notification' in window)) nb.remove()
+  else {
+    if (Notification.permission === 'granted') nb.textContent = 'Payment notifications are on'
+    nb.onclick = async () => {
+      const p = await Notification.requestPermission()
+      toast(p === 'granted' ? 'You will be notified about incoming payments' : 'Notifications are blocked in your browser settings', p === 'granted' ? 'ok' : 'err')
+      if (p === 'granted') nb.textContent = 'Payment notifications are on'
+    }
+  }
 }
 
 function renderClaim() {
@@ -483,6 +568,7 @@ function renderActivity() {
   if (!state.history.length) return (ul.innerHTML = '<li class="empty">No payments yet.</li>')
   ul.innerHTML = state.history
     .map((e) => {
+      if (e.tx.pool) return poolActivity(e)
       const out = e.tx.from === state.address
       const other = out ? e.tx.to : e.tx.from
       const name = state.names.get(other)
@@ -498,6 +584,19 @@ function renderActivity() {
         </li>`
     })
     .join('')
+  ul.querySelectorAll('[data-pool]').forEach((li) => (li.onclick = () => showView('pools', () => renderPool(li.dataset.pool))))
+}
+
+function poolActivity(e) {
+  const when = new Date(e.time).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const text = { create: 'Created a savings pool', join: 'Joined a savings pool', contribute: 'Pool contribution', claim: 'Received pool payout' }[e.tx.pool.op]
+  const id = e.tx.pool.op === 'create' ? e.id : e.tx.pool.id
+  return `
+    <li class="clickable" data-pool="${id}">
+      <span class="icon pool" aria-hidden="true">◎</span>
+      <span class="who"><strong>${text}</strong><small>${when} · tap to view pool</small></span>
+      <span class="amt">${e.tx.pool.op === 'claim' ? '<span class="in">payout</span>' : ''}</span>
+    </li>`
 }
 
 async function resolveRecipient(v) {

@@ -136,7 +136,7 @@ func (s *server) escrowRole(id string, who types.Address) (string, *client.Escro
 func (s *server) postEscrowMessage(w http.ResponseWriter, r *http.Request) {
 	id := r.PathValue("id")
 	me := reqauth.Caller(r)
-	role, _, err := s.escrowRole(id, me)
+	role, esc, err := s.escrowRole(id, me)
 	if err != nil {
 		writeErr(w, http.StatusForbidden, err)
 		return
@@ -190,6 +190,7 @@ func (s *server) postEscrowMessage(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
+	s.notifyEscrowParties(esc, me, msg.Text)
 	writeJSON(w, http.StatusCreated, s.withURLs(*msg))
 }
 

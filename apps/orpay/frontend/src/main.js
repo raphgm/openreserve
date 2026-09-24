@@ -627,13 +627,19 @@ function renderReceive() {
   }
   $('#lock').onclick = () => location.reload()
   const nb = $('#notify')
-  if (!('Notification' in window)) nb.remove()
+  if (!('Notification' in window) || !('serviceWorker' in navigator)) nb.remove()
   else {
-    if (Notification.permission === 'granted') nb.textContent = 'Payment notifications are on'
+    if (Notification.permission === 'granted') nb.textContent = 'Notifications are on'
     nb.onclick = async () => {
-      const p = await Notification.requestPermission()
-      toast(p === 'granted' ? 'You will be notified about incoming payments' : 'Notifications are blocked in your browser settings', p === 'granted' ? 'ok' : 'err')
-      if (p === 'granted') nb.textContent = 'Payment notifications are on'
+      nb.disabled = true
+      try {
+        await enablePush()
+        nb.textContent = 'Notifications are on'
+        toast("You'll be notified about payments, ajo due dates and escrow updates")
+      } catch (err) {
+        toast(err.message, 'err')
+      }
+      nb.disabled = false
     }
   }
 }
@@ -761,6 +767,20 @@ function debounce(fn, ms) {
 // Installable app: register the service worker in production builds.
 if ('serviceWorker' in navigator && import.meta.env.PROD && !window.Capacitor) {
   navigator.serviceWorker.register('/sw.js').catch(() => {})
+}
+
+// Web push: ask permission, subscribe this device, register it with ORPay.
+// On iPhone this works once ORPay is added to the Home Screen.
+async function enablePush() {
+  const p = await Notification.requestPermission()
+  if (p !== 'granted') throw new Error('Notifications are blocked in your browser settings')
+  if (!('PushManager' in window)) throw new Error('This browser cannot receive push notifications. On iPhone, add ORPay to your Home Screen first.')
+  const reg = await navigator.serviceWorker.register('/sw.js')
+  await navigator.serviceWorker.ready
+  const { public_key } = await api.pushKey()
+  const raw = Uint8Array.from(atob(public_key.replace(/-/g, '+').replace(/_/g, '/') + '='.repeat((4 - (public_key.length % 4)) % 4)), (c) => c.charCodeAt(0))
+  const sub = (await reg.pushManager.getSubscription()) ?? (await reg.pushManager.subscribe({ userVisibleOnly: true, applicationServerKey: raw }))
+  await api.pushSubscribe(state.seed, sub.toJSON())
 }
 
 // Shared context handed to the feature modules (pools, checkout, money...).

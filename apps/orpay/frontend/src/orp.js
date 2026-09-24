@@ -274,6 +274,9 @@ async function signedCall(seed, method, path, body) {
 }
 
 export const api = {
+  pushKey: () => call('/api/push/key'),
+  pushSubscribe: (seed, sub) => signedCall(seed, 'POST', '/api/push/subscribe', sub),
+  pushUnsubscribe: (seed, endpoint) => signedCall(seed, 'POST', '/api/push/unsubscribe', { endpoint }),
   invites: (seed) => signedCall(seed, 'GET', '/api/ajo-invites'),
   invite: (id) => call(`/api/ajo-invites/${encodeURIComponent(id)}`),
   createInvite: (seed, body) => signedCall(seed, 'POST', '/api/ajo-invites', body),

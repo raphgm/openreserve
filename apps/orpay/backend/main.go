@@ -61,6 +61,7 @@ func main() {
 	}
 	go s.watchInvoices(*watchInterval)
 	go s.refreshLogos(24 * time.Hour)
+	go s.watchPush(20 * time.Second)
 
 	handler := ratelimit.Middleware(ratelimit.New(300, 60), *trustProxy, s.routes(*trustProxy))
 	log.Printf("ORPay backend listening on %s (node %s)", *listen, *nodeURL)
@@ -91,6 +92,8 @@ type server struct {
 	terms        *jsonstore.Store[map[string]*Terms]
 	chats        *jsonstore.Store[map[string][]*EscrowMessage]
 	drafts       *jsonstore.Store[map[string]*PoolDraft]
+	pushes       *jsonstore.Store[map[types.Address]*pushState]
+	vapid        vapidKeys
 	secret       []byte
 	stateDir     string
 	admins       []types.Address
@@ -134,12 +137,20 @@ func newServer(cfg serverConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	pushes, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-push.json"), map[types.Address]*pushState{})
+	if err != nil {
+		return nil, err
+	}
+	vapid, err := loadVAPID(cfg.stateDir)
+	if err != nil {
+		return nil, err
+	}
 	secret, err := loadSecret(cfg.stateDir)
 	if err != nil {
 		return nil, err
 	}
 	s := &server{
-		terms: terms, chats: chats, secret: secret, drafts: drafts,
+		terms: terms, chats: chats, secret: secret, drafts: drafts, pushes: pushes, vapid: vapid,
 		dir: dir, node: cfg.node, invoices: invoices, apps: apps, escrows: escrows, now: time.Now, stateDir: cfg.stateDir,
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
 		hookClient: webhookClient(cfg.privateHooks),
@@ -220,6 +231,11 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/escrows/{id}/messages", strict(30, 10, reqauth.SignedN(16<<20, s.postEscrowMessage)))
 	mux.HandleFunc("GET /api/escrows/{id}/messages", reqauth.Signed(s.listEscrowMessages))
 	mux.HandleFunc("GET /api/escrow-files/{id}", s.serveEvidence)
+
+	// Web push notifications.
+	mux.HandleFunc("GET /api/push/key", s.pushKey)
+	mux.Handle("POST /api/push/subscribe", strict(20, 5, reqauth.Signed(s.pushSubscribe)))
+	mux.Handle("POST /api/push/unsubscribe", strict(20, 5, reqauth.Signed(s.pushUnsubscribe)))
 
 	// Ajo invite links: join a pool before it exists on-chain.
 	mux.Handle("POST /api/ajo-invites", strict(20, 5, reqauth.Signed(s.createDraft)))

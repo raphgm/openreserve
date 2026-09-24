@@ -42,3 +42,27 @@ self.addEventListener('fetch', (e) => {
       .catch(() => caches.match(e.request).then((hit) => hit ?? caches.match('/index.html'))),
   )
 })
+
+// Push notifications: show them, and open the right page when tapped.
+self.addEventListener('push', (e) => {
+  let n = { title: 'ORPay', body: '', url: '/' }
+  try {
+    n = { ...n, ...e.data.json() }
+  } catch {}
+  e.waitUntil(
+    self.registration.showNotification(n.title, {
+      body: n.body, tag: n.tag, icon: '/icon-192.png', badge: '/icon-192.png', data: { url: n.url },
+    }),
+  )
+})
+
+self.addEventListener('notificationclick', (e) => {
+  e.notification.close()
+  const url = new URL(e.notification.data?.url ?? '/', self.location.origin).href
+  e.waitUntil(
+    self.clients.matchAll({ type: 'window', includeUncontrolled: true }).then((wins) => {
+      const open = wins.find((w) => w.url.startsWith(self.location.origin))
+      return open ? open.navigate(url).then((w) => w?.focus()) : self.clients.openWindow(url)
+    }),
+  )
+})

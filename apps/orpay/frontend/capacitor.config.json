@@ -1,0 +1,7 @@
+{
+  "appId": "com.openreserve.orpay",
+  "appName": "ORPay",
+  "webDir": "dist",
+  "server": { "androidScheme": "https" },
+  "plugins": {}
+}

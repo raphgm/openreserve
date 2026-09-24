@@ -2,6 +2,7 @@
 // app's settlement address on-chain from their own wallet; the invoice turns
 // paid once the payment lands, and they get a receipt.
 import { api, feeFor, formatMoney, gateway, providerLabel, send, waitForCommit } from './orp.js'
+import { openCheckout } from './native.js'
 
 let ctx
 
@@ -114,7 +115,7 @@ export async function renderCheckout(id, cardRef) {
       card.textContent = 'Opening checkout…'
       try {
         const r = await gateway.cardPay(inv.id, email, card.dataset.card)
-        location.assign(r.authorization_url)
+        if (await openCheckout(r.authorization_url)) awaitCardPayment(inv)
       } catch (e) {
         ctx.$('#err').textContent = e.message
         card.disabled = false

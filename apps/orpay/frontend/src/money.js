@@ -3,6 +3,7 @@
 // arrives as NGN once the provider confirms. Withdraw: NGN is destroyed
 // on-chain and the provider pays the bank.
 import { formatMoney, gateway, parseAmount, providerLabel, send, waitForCommit } from './orp.js'
+import { openCheckout } from './native.js'
 
 let ctx
 
@@ -82,7 +83,7 @@ export function renderAddMoney() {
       const res = await ctx.gatewayCall(() =>
         gateway.deposit(ctx.state.seed, (Number(amount / 10_000n) / 100).toFixed(2), email, prov.get()),
       )
-      location.assign(res.authorization_url)
+      if (await openCheckout(res.authorization_url)) confirmDeposit(res.reference)
     } catch (e2) {
       err.textContent = e2.message
       btn.disabled = false

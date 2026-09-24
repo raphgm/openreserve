@@ -142,9 +142,13 @@ export async function signMessage(message, seed) {
   return toHex(await ed.signAsync(enc.encode(message), seed))
 }
 
-// Node API. Paths are relative so the dev server can proxy them.
+// API origin. Empty on the web (same-origin paths, proxied in development);
+// the native app is built with VITE_API_BASE=https://<your domain>.
+export const API_BASE = (import.meta.env?.VITE_API_BASE ?? '').replace(/\/$/, '')
+
+// Node API.
 async function call(path, opts) {
-  const res = await fetch(path, opts)
+  const res = await fetch(API_BASE + path, opts)
   const body = await res.json().catch(() => ({}))
   if (!res.ok) throw new Error(body.error || `Request failed (${res.status})`)
   return body

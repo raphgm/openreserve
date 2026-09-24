@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">ORPay</string>
+    <string name="title_activity_main">ORPay</string>
+    <string name="package_name">com.openreserve.orpay</string>
+    <string name="custom_url_scheme">com.openreserve.orpay</string>
+</resources>

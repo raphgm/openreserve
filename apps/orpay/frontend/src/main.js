@@ -701,6 +701,11 @@ function debounce(fn, ms) {
   }
 }
 
+// Installable app: register the service worker in production builds.
+if ('serviceWorker' in navigator && import.meta.env.PROD && !window.Capacitor) {
+  navigator.serviceWorker.register('/sw.js').catch(() => {})
+}
+
 // Shared context handed to the feature modules (pools, checkout, money...).
 const ctx = {
   state, $, esc, short, toast, resolveRecipient,

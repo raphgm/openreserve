@@ -1,7 +1,7 @@
 // OpenReserve block explorer: a public, read-only view of the chain. Every
 // number here comes straight from a node's API; nothing is cached or edited.
 import './style.css'
-import { api, formatMoney, isAddress, node, txID } from './orp.js'
+import { API_BASE, api, formatMoney, isAddress, node, txID } from './orp.js'
 
 const app = document.getElementById('app')
 const esc = (s) => String(s ?? '').replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' })[c])
@@ -103,7 +103,7 @@ async function txRow({ tx, height, time }) {
 }
 
 async function call(path) {
-  const r = await fetch(path)
+  const r = await fetch(API_BASE + path)
   if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || r.statusText)
   return r.json()
 }

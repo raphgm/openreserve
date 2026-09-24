@@ -9,6 +9,10 @@ wallet and your server gets a signed webhook.
 Open ORPay → **Developers** → **Request access**. Once an OpenReserve admin
 approves your app, create an API key and copy your webhook signing secret.
 
+Set your **brand name and colour** in the Developers tab: your checkout,
+escrow and receipt pages then show "*Your brand* × ORPay" in your colour.
+Only approved apps are co-branded.
+
 ## 2. Create a checkout (server side)
 
 ```js

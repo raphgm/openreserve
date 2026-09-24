@@ -181,6 +181,8 @@ export async function renderEscrow(id, preloaded) {
   // Escrows created from a partner app's request carry milestone labels.
   if (e.ref?.startsWith('esr_') && !data.request) data.request = await api.escrowRequest(e.ref).catch(() => null)
   const req = data.request
+  if (req?.app?.status === 'approved') ctx.cobrand(req.app)
+  else ctx.cobrand(null)
   const msLabel = (i) => ctx.esc(req?.milestones?.[i]?.label ?? `Milestone ${i + 1}`)
   const money = (x) => formatMoney(x, e.asset ?? '')
   const role = roleOf(e)
@@ -244,7 +246,7 @@ export async function renderEscrow(id, preloaded) {
   root.innerHTML = `
     <section class="card escrow-hero" data-escrow-id="${e.id}">
       <button class="link back light" id="back">← Escrow</button>
-      <div class="pool-title"><h2>${req?.app ? ctx.esc(req.app.name) : e.ref ? `#${ctx.esc(e.ref)}` : 'Escrow'}</h2>${statusChip(e.status)}</div>
+      <div class="pool-title"><h2>${req?.app ? ctx.esc(req.app.brand_name || req.app.name) : e.ref ? `#${ctx.esc(e.ref)}` : 'Escrow'}</h2>${statusChip(e.status)}</div>
       ${req?.description ? `<p class="hero-sub">${ctx.esc(req.description)}</p>` : ''}
       <p class="label">${open ? 'Locked in escrow' : 'Escrow total'}</p>
       <p class="amount">${money(open ? e.balance : total(e))}</p>
@@ -344,13 +346,14 @@ export async function renderFundRequest(id) {
   await ctx.resolveNames([r.seller, r.arbiter])
   const money = (x) => formatMoney(x, r.asset ?? '')
   const app = r.app ?? { name: 'A partner app', status: 'unknown' }
+  if (app.status === 'approved') ctx.cobrand(app)
   const expired = r.status === 'expired' || new Date(r.expires_at) < new Date()
   root.innerHTML = `
     <section class="card checkout">
       <p class="label">Fund escrow</p>
       <div class="merchant">
-        <span class="pool-avatar escrow-avatar">⛨</span>
-        <span class="who"><strong>${ctx.esc(app.name)} ${app.status === 'approved' ? '<span class="chip-s ok">Verified</span>' : '<span class="chip-s warn">Not verified</span>'}</strong>
+        <span class="pool-avatar escrow-avatar ${app.status === 'approved' ? 'partner-bg' : ''}">⛨</span>
+        <span class="who"><strong>${ctx.esc(app.brand_name || app.name)} ${app.status === 'approved' ? '<span class="chip-s ok">Verified</span>' : '<span class="chip-s warn">Not verified</span>'}</strong>
         <small>${ctx.esc(r.description || 'Payment held in escrow until milestones are approved')}</small></span>
       </div>
       <p class="amount">${money(r.total)}</p>

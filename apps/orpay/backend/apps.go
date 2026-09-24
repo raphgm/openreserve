@@ -42,6 +42,9 @@ type App struct {
 	Settlement  types.Address `json:"settlement_address"`
 	Status      string        `json:"status"`
 	WebhookURL  string        `json:"webhook_url,omitempty"`
+	// Co-branding shown next to ORPay on this app's checkout and escrow pages.
+	BrandName  string `json:"brand_name,omitempty"`  // defaults to Name
+	BrandColor string `json:"brand_color,omitempty"` // #rrggbb
 	// ArbiterAddr settles disputes on this app's escrows (default: Owner).
 	ArbiterAddr types.Address `json:"arbiter_address,omitempty"`
 	CreatedAt   time.Time     `json:"created_at"`
@@ -64,7 +67,12 @@ func (a *App) Arbiter() types.Address {
 
 // public is what anyone may see about an app (shown on its checkout page).
 func (a *App) public() map[string]any {
-	return map[string]any{"id": a.ID, "name": a.Name, "website": a.Website, "status": a.Status}
+	brand := a.BrandName
+	if brand == "" {
+		brand = a.Name
+	}
+	return map[string]any{"id": a.ID, "name": a.Name, "website": a.Website, "status": a.Status,
+		"brand_name": brand, "brand_color": a.BrandColor}
 }
 
 // forOwner hides the key hash but includes the webhook secret.
@@ -74,7 +82,10 @@ func (a *App) forOwner() App {
 	return c
 }
 
-var appNameRe = regexp.MustCompile(`^[\p{L}\p{N} .&'-]{2,40}$`)
+var (
+	appNameRe = regexp.MustCompile(`^[\p{L}\p{N} .&'-]{2,40}$`)
+	colorRe   = regexp.MustCompile(`^#[0-9a-fA-F]{6}$`)
+)
 
 func randToken(prefix string, n int) string {
 	b := make([]byte, n)
@@ -264,6 +275,8 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 		WebhookURL *string        `json:"webhook_url"`
 		Settlement *types.Address `json:"settlement_address"`
 		Arbiter    *types.Address `json:"arbiter_address"`
+		BrandName  *string        `json:"brand_name"`
+		BrandColor *string        `json:"brand_color"`
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -278,6 +291,19 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			a.WebhookURL = *req.WebhookURL
+		}
+		if req.BrandName != nil {
+			n := strings.TrimSpace(*req.BrandName)
+			if n != "" && !appNameRe.MatchString(n) {
+				return errors.New("brand name must be 2-40 letters, numbers, spaces or .&'-")
+			}
+			a.BrandName = n
+		}
+		if req.BrandColor != nil {
+			if *req.BrandColor != "" && !colorRe.MatchString(*req.BrandColor) {
+				return errors.New("brand colour must look like #1a73e8")
+			}
+			a.BrandColor = strings.ToLower(*req.BrandColor)
 		}
 		if req.Arbiter != nil {
 			if *req.Arbiter != "" {

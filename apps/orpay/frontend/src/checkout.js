@@ -39,6 +39,7 @@ export async function renderCheckout(id, cardRef) {
   const money = (x) => formatMoney(x, asset)
   const app = inv.app ?? { name: 'Unknown merchant', status: 'unknown' }
   const verified = app.status === 'approved'
+  if (verified) ctx.cobrand(app) // only approved partners get their name beside ORPay
   const expires = new Date(inv.expires_at)
   const expired = inv.status === 'expired' || expires < new Date()
 
@@ -46,9 +47,9 @@ export async function renderCheckout(id, cardRef) {
     <section class="card checkout">
       <p class="label">Pay</p>
       <div class="merchant">
-        <span class="pool-avatar">${ctx.esc(app.name.slice(0, 1).toUpperCase())}</span>
+        <span class="pool-avatar ${verified ? 'partner-bg' : ''}">${ctx.esc((verified && app.brand_name ? app.brand_name : app.name).slice(0, 1).toUpperCase())}</span>
         <span class="who">
-          <strong>${ctx.esc(app.name)} ${verified ? '<span class="chip-s ok">Verified</span>' : '<span class="chip-s warn">Not verified</span>'}</strong>
+          <strong>${ctx.esc(verified && app.brand_name ? app.brand_name : app.name)} ${verified ? '<span class="chip-s ok">Verified</span>' : '<span class="chip-s warn">Not verified</span>'}</strong>
           <small>${ctx.esc(app.website ?? '')}</small>
         </span>
       </div>
@@ -146,6 +147,7 @@ async function awaitCardPayment(inv) {
 function renderReceipt(inv) {
   const root = ctx.root()
   const app = inv.app ?? { name: 'Merchant' }
+  if (app.status === 'approved') ctx.cobrand(app)
   const back = returnLink(inv)
   root.innerHTML = `
     <section class="card receipt">
@@ -153,7 +155,7 @@ function renderReceipt(inv) {
       <h2>Payment complete</h2>
       <p class="amount">${formatMoney(inv.amount, inv.asset ?? '')}</p>
       <dl class="summary">
-        <dt>Paid to</dt><dd>${ctx.esc(app.name)}</dd>
+        <dt>Paid to</dt><dd>${ctx.esc(app.brand_name || app.name)}</dd>
         ${inv.description ? `<dt>For</dt><dd>${ctx.esc(inv.description)}</dd>` : ''}
         <dt>Date</dt><dd>${new Date(inv.paid_at).toLocaleString()}</dd>
         ${inv.height ? `<dt>Block</dt><dd>${inv.height}</dd>` : ''}
@@ -161,7 +163,7 @@ function renderReceipt(inv) {
         <dt>Receipt no.</dt><dd class="mono">${ctx.esc(inv.id)}</dd>
       </dl>
       <div class="row">
-        ${back ? `<a class="button primary" href="${ctx.esc(back)}">Return to ${ctx.esc(app.name)}</a>` : '<button class="primary" id="done">Done</button>'}
+        ${back ? `<a class="button primary" href="${ctx.esc(back)}">Return to ${ctx.esc(app.brand_name || app.name)}</a>` : '<button class="primary" id="done">Done</button>'}
         <button class="ghost" id="print">Save receipt</button>
       </div>
     </section>`

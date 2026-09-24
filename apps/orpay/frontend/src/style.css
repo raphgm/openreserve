@@ -440,3 +440,20 @@ h2.spaced { margin-top: 24px; }
   .x-header { flex-wrap: wrap; }
   .x-search { order: 3; flex-basis: 100%; }
 }
+
+/* Co-branding: "Partner × ORPay" */
+.logo.cobrand::before { display: none; }
+.logo.cobrand { gap: 7px; font-size: 1.1rem; }
+.partner-mark {
+  width: 26px; height: 26px; border-radius: 8px; display: grid; place-items: center; flex: none;
+  background: var(--partner, var(--brand-1)); color: #fff; font-size: .85rem; font-weight: 800;
+  box-shadow: 0 4px 12px -4px var(--partner, var(--brand-1));
+}
+.partner-name { color: var(--text); max-width: 11em; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cobrand-x { color: var(--muted); font-weight: 500; }
+.cobrand-orpay { background: var(--brand-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.brand-edit { display: grid; grid-template-columns: 1fr auto; gap: 12px; align-items: end; }
+.brand-edit input[type='color'] { width: 64px; height: 50px; padding: 4px; cursor: pointer; }
+.brand-preview { background: var(--surface-2); border-radius: 14px; padding: 14px 16px; }
+@media (max-width: 420px) { .partner-name { max-width: 6em; } }
+.pool-avatar.partner-bg { background: var(--partner, var(--brand-grad)); }

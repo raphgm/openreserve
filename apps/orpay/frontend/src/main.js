@@ -214,6 +214,7 @@ async function openWallet(seed, address) {
 // Switch the main area between Home, Pools, Developers and Checkout.
 function showView(view, render) {
   state.view = view
+  if (view !== 'checkout' && view !== 'escrow') cobrand(null)
   app.querySelectorAll('[data-view]').forEach((b) => b.setAttribute('aria-current', b.dataset.view === view ? 'page' : 'false'))
   window.scrollTo(0, 0)
   if (view === 'home') {
@@ -719,6 +720,26 @@ const ctx = {
   // Checkout works without a wallet (card payment). Paying from the wallet
   // asks the customer to unlock or create one, then returns to the checkout.
   requireWallet: () => (hasVault() ? renderUnlock() : renderWelcome()),
+  // Show a partner's name next to ORPay on its checkout/escrow pages.
+  cobrand: (partner) => cobrand(partner),
+}
+
+function cobrand(partner) {
+  const logo = app.querySelector('header .logo')
+  if (!logo) return
+  const root = document.documentElement // the colour also tints partner marks inside the page
+  if (!partner) {
+    logo.classList.remove('cobrand')
+    logo.textContent = 'ORPay'
+    root.style.removeProperty('--partner')
+    return
+  }
+  const name = partner.brand_name || partner.name
+  logo.classList.add('cobrand')
+  logo.innerHTML = `<span class="partner-mark" aria-hidden="true">${esc(name.slice(0, 1).toUpperCase())}</span><span class="partner-name">${esc(name)}</span><span class="cobrand-x">×</span><span class="cobrand-orpay">ORPay</span>`
+  logo.setAttribute('aria-label', `${name} with ORPay`)
+  if (/^#[0-9a-f]{6}$/i.test(partner.brand_color ?? '')) root.style.setProperty('--partner', partner.brand_color)
+  else root.style.removeProperty('--partner')
 }
 initPools(ctx)
 initCheckout(ctx)

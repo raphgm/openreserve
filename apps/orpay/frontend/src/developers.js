@@ -237,7 +237,7 @@ function renderRequest() {
         <label>App or company name<input id="name" maxlength="40" placeholder="Gabis" required></label>
         <label>Website<input id="website" type="url" placeholder="https://gabis.app" required></label>
         <label>Contact email<input id="email" type="email" placeholder="dev@gabis.app" required></label>
-        <label>What will you use ORPay for?<textarea id="desc" rows="3" maxlength="1000" placeholder="e.g. Customers pay for rides in the Gabis app"></textarea></label>
+        <label>What will you use ORPay for?<textarea id="desc" rows="3" maxlength="1000" placeholder="e.g. Customers pay invoices through Gabis Payments"></textarea></label>
         <label>Settlement wallet <span class="muted">(optional, defaults to this wallet)</span><input id="settle" class="mono" placeholder="64-character address"></label>
         <p class="error" id="err"></p>
         <button class="primary" id="go">Submit request</button>

@@ -22,9 +22,9 @@ const orpay = new ORPay({ apiKey: process.env.ORPAY_API_KEY, baseUrl: 'https://p
 
 const checkout = await orpay.createCheckout({
   amount: '12.50',              // decimal string, never a float
-  description: 'Ride to Lekki',
-  reference: 'ride-981',        // your own order id
-  returnUrl: 'https://gabis.app/rides/981',
+  description: 'Invoice #1042',
+  reference: 'inv-1042',        // your own order id
+  returnUrl: 'https://gabis.pages.dev/orders/1042',
 })
 // Redirect the customer to checkout.checkout_url
 ```

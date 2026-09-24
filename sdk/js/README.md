@@ -46,6 +46,31 @@ app.post('/orpay/webhook', express.raw({ type: 'application/json' }), (req, res)
 Events: `invoice.paid`, `invoice.expired`. Deliveries are retried with backoff
 for about a day, so make your handler idempotent (key on `event.data.id`).
 
+## Escrow: hold payouts until work is done
+
+```js
+const escrow = await orpay.createEscrow({
+  seller: '@developer',                 // who gets paid (username or address)
+  currency: 'NGN',
+  description: 'Landing page build',
+  milestones: [
+    { label: 'Design approved', amount: '40000' },
+    { label: 'Site delivered', amount: '60000' },
+  ],
+  shipByDays: 14,   // client can reclaim if nothing is delivered in time
+  reviewDays: 3,    // developer can claim if the client goes silent after delivery
+  reference: 'job-17',
+})
+// Send the client to escrow.funding_url.
+```
+
+The client locks the funds on-chain from their own wallet; neither your app
+nor ORPay holds them. The client releases each milestone; either side can
+open a dispute, which your app's arbiter wallet settles in ORPay. Webhooks:
+`escrow.funded`, `escrow.dispatched`, `escrow.milestone_released`,
+`escrow.disputed`, `escrow.completed`, `escrow.refunded`, `escrow.resolved`,
+`escrow.expired`.
+
 ## Savings pools
 
 Pools are on-chain and belong to users, not apps. Your app can show a user's

@@ -259,6 +259,7 @@ async function signedCall(seed, method, path, body) {
 }
 
 export const api = {
+  escrowRequest: (id) => call(`/api/escrow-requests/${encodeURIComponent(id)}`),
   invoice: (id) => call(`/api/invoices/${encodeURIComponent(id)}`),
   apps: (seed) => signedCall(seed, 'GET', '/api/apps'),
   requestApp: (seed, body) => signedCall(seed, 'POST', '/api/apps', body),

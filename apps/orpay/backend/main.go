@@ -86,6 +86,7 @@ type server struct {
 	faucet       *faucet
 	invoices     *jsonstore.Store[map[string]*Invoice]
 	apps         *jsonstore.Store[map[string]*App]
+	escrows      *jsonstore.Store[map[string]*EscrowRequest]
 	admins       []types.Address
 	publicURL    string
 	privateHooks bool
@@ -111,8 +112,12 @@ func newServer(cfg serverConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	escrows, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-escrows.json"), map[string]*EscrowRequest{})
+	if err != nil {
+		return nil, err
+	}
 	s := &server{
-		dir: dir, node: cfg.node, invoices: invoices, apps: apps, now: time.Now,
+		dir: dir, node: cfg.node, invoices: invoices, apps: apps, escrows: escrows, now: time.Now,
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
 		hookClient: webhookClient(cfg.privateHooks),
 	}
@@ -175,6 +180,13 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/v1/checkout", strict(120, 40, s.apiKeyAuth(s.createCheckout)))
 	mux.HandleFunc("GET /api/v1/checkout", s.apiKeyAuth(s.listCheckouts))
 	mux.HandleFunc("GET /api/v1/checkout/{id}", s.apiKeyAuth(s.getCheckout))
+
+	// Escrow requests: an app asks a buyer to lock funds (e.g. a developer's
+	// payout held until work is approved).
+	mux.Handle("POST /api/v1/escrows", strict(120, 40, s.apiKeyAuth(s.createEscrowRequest)))
+	mux.HandleFunc("GET /api/v1/escrows", s.apiKeyAuth(s.listAppEscrows))
+	mux.HandleFunc("GET /api/v1/escrows/{id}", s.apiKeyAuth(s.getAppEscrow))
+	mux.HandleFunc("GET /api/escrow-requests/{id}", s.getEscrowRequest)
 
 	// Public invoice view for the hosted checkout page and receipts.
 	mux.HandleFunc("GET /api/invoices/{id}", s.getInvoice)

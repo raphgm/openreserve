@@ -1,7 +1,7 @@
 // Smart escrow: funds locked on-chain between a buyer and a seller, released
 // in milestones by the buyer, with an independent arbiter for disputes and
 // timeouts so money is never stuck. Everything shown is read from the chain.
-import { assetLabel, escrowOp, formatMoney, node, parseAmount, waitForCommit } from './orp.js'
+import { api, assetLabel, escrowOp, formatMoney, node, parseAmount, waitForCommit } from './orp.js'
 
 let ctx
 
@@ -178,6 +178,10 @@ export async function renderEscrow(id, preloaded) {
   }
   const { escrow: e, history } = data
   await ctx.resolveNames([e.buyer, e.seller, e.arbiter])
+  // Escrows created from a partner app's request carry milestone labels.
+  if (e.ref?.startsWith('esr_') && !data.request) data.request = await api.escrowRequest(e.ref).catch(() => null)
+  const req = data.request
+  const msLabel = (i) => ctx.esc(req?.milestones?.[i]?.label ?? `Milestone ${i + 1}`)
   const money = (x) => formatMoney(x, e.asset ?? '')
   const role = roleOf(e)
   const now = Date.now()
@@ -206,13 +210,13 @@ export async function renderEscrow(id, preloaded) {
   ].join('')
 
   const ms = e.milestones
-    .map((m, i) => `<li class="${i < e.released ? 'paid' : ''}"><span>Milestone ${i + 1}</span><strong>${money(m)}</strong><span class="${i < e.released ? 'tick' : 'pending'}">${i < e.released ? 'Released' : 'Held'}</span></li>`)
+    .map((m, i) => `<li class="${i < e.released ? 'paid' : ''}"><span>${msLabel(i)}</span><strong>${money(m)}</strong><span class="${i < e.released ? 'tick' : 'pending'}">${i < e.released ? 'Released' : 'Held'}</span></li>`)
     .join('')
 
   // What this person can do right now.
   const acts = []
   if (role === 'buyer' && (e.status === 'funded' || e.status === 'dispatched')) {
-    acts.push(`<button class="primary" data-op="release">Release milestone ${e.released + 1} · ${money(e.milestones[e.released])}</button>`)
+    acts.push(`<button class="primary" data-op="release">Release “${msLabel(e.released)}” · ${money(e.milestones[e.released])}</button>`)
     acts.push('<button class="danger" data-op="dispute">Open a dispute</button>')
     if (e.status === 'funded' && now > e.ship_by) acts.push('<button class="ghost" data-op="refund">Reclaim my funds (not shipped in time)</button>')
   }
@@ -240,7 +244,8 @@ export async function renderEscrow(id, preloaded) {
   root.innerHTML = `
     <section class="card escrow-hero" data-escrow-id="${e.id}">
       <button class="link back light" id="back">← Escrow</button>
-      <div class="pool-title"><h2>${e.ref ? `#${ctx.esc(e.ref)}` : 'Escrow'}</h2>${statusChip(e.status)}</div>
+      <div class="pool-title"><h2>${req?.app ? ctx.esc(req.app.name) : e.ref ? `#${ctx.esc(e.ref)}` : 'Escrow'}</h2>${statusChip(e.status)}</div>
+      ${req?.description ? `<p class="hero-sub">${ctx.esc(req.description)}</p>` : ''}
       <p class="label">${open ? 'Locked in escrow' : 'Escrow total'}</p>
       <p class="amount">${money(open ? e.balance : total(e))}</p>
       <div class="pool-stats">
@@ -319,7 +324,74 @@ export async function renderEscrow(id, preloaded) {
     if (ctx.root().querySelector('[data-op]:disabled') || document.activeElement?.matches('input')) return
     try {
       const d = await node.escrow(e.id)
-      if (JSON.stringify(d) !== snap) renderEscrow(e.id, d)
+      if (JSON.stringify({ ...d, request: data.request }) !== snap) renderEscrow(e.id, { ...d, request: data.request })
     } catch {}
   }, 3000)
+}
+
+// Funding page for a partner app's escrow request: /?escrow_request=<id>.
+export async function renderFundRequest(id) {
+  const root = ctx.root()
+  root.innerHTML = '<section class="card"><p class="muted">Loading…</p></section>'
+  let r
+  try {
+    r = await api.escrowRequest(id)
+  } catch (err) {
+    root.innerHTML = `<section class="card"><h2>Escrow request not found</h2><p class="error">${ctx.esc(err.message)}</p></section>`
+    return
+  }
+  if (r.escrow_id) return renderEscrow(r.escrow_id)
+  await ctx.resolveNames([r.seller, r.arbiter])
+  const money = (x) => formatMoney(x, r.asset ?? '')
+  const app = r.app ?? { name: 'A partner app', status: 'unknown' }
+  const expired = r.status === 'expired' || new Date(r.expires_at) < new Date()
+  root.innerHTML = `
+    <section class="card checkout">
+      <p class="label">Fund escrow</p>
+      <div class="merchant">
+        <span class="pool-avatar escrow-avatar">⛨</span>
+        <span class="who"><strong>${ctx.esc(app.name)} ${app.status === 'approved' ? '<span class="chip-s ok">Verified</span>' : '<span class="chip-s warn">Not verified</span>'}</strong>
+        <small>${ctx.esc(r.description || 'Payment held in escrow until milestones are approved')}</small></span>
+      </div>
+      <p class="amount">${money(r.total)}</p>
+      <dl class="summary">
+        <dt>Paid to</dt><dd>${label(r.seller)}</dd>
+        <dt>Disputes settled by</dt><dd>${label(r.arbiter)}</dd>
+        <dt>Delivery deadline</dt><dd>${r.ship_by_days} days after funding</dd>
+        <dt>Your review period</dt><dd>${r.review_days} days after delivery</dd>
+      </dl>
+      <ul class="milestones">${r.milestones.map((m) => `<li><span>${ctx.esc(m.label)}</span><strong>${money(m.amount)}</strong><span class="pending">Held</span></li>`).join('')}</ul>
+      <p class="small-text muted">Your money is locked on-chain, not held by ${ctx.esc(app.name)}. You release each milestone when you're satisfied. If there's a problem, open a dispute and the arbiter decides.</p>
+      <p class="error" id="err"></p>
+      ${expired ? '<p class="banner">This request has expired. Ask for a new one.</p>' : `<button class="primary" id="fund">Lock ${money(r.total)} in escrow</button>`}
+    </section>`
+  const btn = ctx.$('#fund')
+  if (!btn) return
+  if (!ctx.state.seed) btn.textContent = 'Open ORPay wallet to fund'
+  btn.onclick = async () => {
+    if (!ctx.state.seed) return ctx.requireWallet()
+    const need = BigInt(r.total)
+    const have = BigInt(r.asset ? ctx.state.account?.assets?.[r.asset] ?? 0 : ctx.state.account?.balance ?? 0)
+    if (ctx.state.account && need > have) {
+      ctx.$('#err').textContent = 'Not enough in your wallet. Add money first.'
+      return
+    }
+    btn.disabled = true
+    btn.textContent = 'Locking…'
+    try {
+      const txid = await escrowOp({
+        seed: ctx.state.seed, op: 'create', seller: r.seller, arbiter: r.arbiter, asset: r.asset ?? '',
+        milestones: r.milestones.map((m) => BigInt(m.amount)), ref: r.id,
+        shipBy: Date.now() + r.ship_by_days * DAY, reviewSecs: r.review_days * 86_400,
+      })
+      await waitForCommit(txid)
+      ctx.toast('Funds locked in escrow')
+      ctx.refresh()
+      renderEscrow(txid)
+    } catch (err) {
+      ctx.$('#err').textContent = err.message
+      btn.disabled = false
+      btn.textContent = `Lock ${money(r.total)} in escrow`
+    }
+  }
 }

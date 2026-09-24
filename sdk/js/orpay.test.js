@@ -31,4 +31,5 @@ test('requires a secret key and string amounts', () => {
   assert.throws(() => new ORPay({ apiKey: 'pk_live' }))
   const c = new ORPay({ apiKey: 'orp_sk_x' })
   assert.throws(() => c.createCheckout({ amount: 12.5 }))
+  assert.throws(() => c.createEscrow({ seller: '@dev', milestones: [{ amount: 40000 }] }))
 })

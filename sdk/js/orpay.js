@@ -50,6 +50,34 @@ export class ORPay {
     return this.#call('GET', `/api/v1/checkout/${encodeURIComponent(id)}`)
   }
 
+  /**
+   * Ask a buyer to lock funds in escrow, released to the seller milestone
+   * by milestone (e.g. hold a developer's payout until work is approved).
+   * Send the buyer to the returned funding_url.
+   * @param {{ seller: string, milestones: {label?: string, amount: string}[], currency?: string,
+   *   arbiter?: string, description?: string, reference?: string, returnUrl?: string,
+   *   shipByDays?: number, reviewDays?: number, fundWithinHours?: number }} p
+   *   seller/arbiter are @usernames or addresses; the arbiter defaults to your app's arbiter.
+   */
+  createEscrow({ seller, milestones, currency, arbiter, description, reference, returnUrl, shipByDays, reviewDays, fundWithinHours } = {}) {
+    if (!Array.isArray(milestones) || milestones.some((m) => typeof m.amount !== 'string')) {
+      throw new TypeError('ORPay: milestones must be [{ label, amount: "40000.00" }]')
+    }
+    return this.#call('POST', '/api/v1/escrows', {
+      seller, milestones, currency, arbiter, description, reference, return_url: returnUrl,
+      ship_by_days: shipByDays, review_days: reviewDays, fund_within_hours: fundWithinHours,
+    })
+  }
+
+  /** Fetch an escrow request with its live on-chain state. */
+  getEscrow(id) {
+    return this.#call('GET', `/api/v1/escrows/${encodeURIComponent(id)}`)
+  }
+
+  listEscrows() {
+    return this.#call('GET', '/api/v1/escrows')
+  }
+
   /** List recent checkouts, optionally filtered by status (pending | paid | expired). */
   listCheckouts({ status } = {}) {
     return this.#call('GET', `/api/v1/checkout${status ? `?status=${encodeURIComponent(status)}` : ''}`)

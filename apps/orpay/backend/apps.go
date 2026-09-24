@@ -42,6 +42,8 @@ type App struct {
 	Settlement  types.Address `json:"settlement_address"`
 	Status      string        `json:"status"`
 	WebhookURL  string        `json:"webhook_url,omitempty"`
+	// ArbiterAddr settles disputes on this app's escrows (default: Owner).
+	ArbiterAddr types.Address `json:"arbiter_address,omitempty"`
 	CreatedAt   time.Time     `json:"created_at"`
 	ReviewedAt  time.Time     `json:"reviewed_at,omitzero"`
 	ReviewNote  string        `json:"review_note,omitempty"`
@@ -50,6 +52,14 @@ type App struct {
 	KeyHash       string `json:"key_hash,omitempty"`
 	KeyPrefix     string `json:"key_prefix,omitempty"`
 	WebhookSecret string `json:"webhook_secret,omitempty"`
+}
+
+// Arbiter is who settles disputes on this app's escrows.
+func (a *App) Arbiter() types.Address {
+	if a.ArbiterAddr != "" {
+		return a.ArbiterAddr
+	}
+	return a.Owner
 }
 
 // public is what anyone may see about an app (shown on its checkout page).
@@ -253,6 +263,7 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		WebhookURL *string        `json:"webhook_url"`
 		Settlement *types.Address `json:"settlement_address"`
+		Arbiter    *types.Address `json:"arbiter_address"`
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -267,6 +278,14 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 				}
 			}
 			a.WebhookURL = *req.WebhookURL
+		}
+		if req.Arbiter != nil {
+			if *req.Arbiter != "" {
+				if err := req.Arbiter.Validate(); err != nil {
+					return fmt.Errorf("arbiter address: %w", err)
+				}
+			}
+			a.ArbiterAddr = *req.Arbiter
 		}
 		if req.Settlement != nil {
 			if err := req.Settlement.Validate(); err != nil {

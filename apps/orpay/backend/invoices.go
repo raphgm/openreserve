@@ -197,7 +197,11 @@ func (s *server) watchInvoices(every time.Duration) {
 		if err := s.checkInvoices(); err != nil {
 			log.Printf("invoice watcher: %v", err)
 		}
+		if err := s.checkEscrows(); err != nil {
+			log.Printf("escrow watcher: %v", err)
+		}
 		s.deliverWebhooks()
+		s.deliverEscrowEvents()
 	}
 }
 

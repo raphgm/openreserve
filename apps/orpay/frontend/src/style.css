@@ -400,3 +400,4 @@ h2.spaced { margin-top: 24px; }
 .timeline .ev-release .ev-dot, .timeline .ev-claim .ev-dot { border-color: var(--in); background: var(--in); }
 .timeline .ev-dispute .ev-dot { border-color: var(--danger); }
 .pool-stats strong span { text-transform: none; letter-spacing: 0; font-size: inherit; color: inherit; font-weight: 600; }
+.hero-sub { position: relative; z-index: 1; color: rgb(255 255 255 / .8); font-size: .9rem; margin: -6px 0 10px; }

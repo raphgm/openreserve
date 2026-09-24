@@ -84,8 +84,12 @@ func (s *server) deliverWebhooks() {
 }
 
 func (s *server) postWebhook(target, secret string, inv *Invoice) error {
-	event := "invoice." + inv.Status
-	body, _ := json.Marshal(map[string]any{"type": event, "created": s.now().Unix(), "data": s.invoiceView(inv, true)})
+	return s.postEvent(target, secret, "invoice."+inv.Status, s.invoiceView(inv, true))
+}
+
+// postEvent delivers one signed webhook event.
+func (s *server) postEvent(target, secret, event string, data map[string]any) error {
+	body, _ := json.Marshal(map[string]any{"type": event, "created": s.now().Unix(), "data": data})
 	ts := s.now().Unix()
 	req, _ := http.NewRequest(http.MethodPost, target, bytes.NewReader(body))
 	req.Header.Set("Content-Type", "application/json")

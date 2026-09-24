@@ -100,6 +100,7 @@ function appCard(a) {
         </div>
         <label>Webhook URL<input data-field="webhook_url" value="${ctx.esc(a.webhook_url ?? '')}" placeholder="https://your-app.com/orpay/webhook"></label>
         <label>Settlement wallet (receives payments)<input data-field="settlement_address" class="mono" value="${ctx.esc(a.settlement_address)}"></label>
+        <label>Escrow arbiter (settles disputes; defaults to your wallet)<input data-field="arbiter_address" class="mono" value="${ctx.esc(a.arbiter_address ?? '')}" placeholder="${ctx.esc(a.owner)}"></label>
         <button class="ghost small" data-act="save">Save settings</button>
         <details>
           <summary>Webhook signing secret</summary>
@@ -126,7 +127,18 @@ curl -X POST ${base}/api/v1/checkout \\
 
 # 3. Verify webhooks: header ORPay-Signature: t=<ts>,v1=<hex>
 #    v1 = HMAC-SHA256(webhook_secret, "<ts>." + raw_body)
-#    Events: invoice.paid, invoice.expired`
+#    Events: invoice.paid, invoice.expired
+
+# Escrow (e.g. hold a developer's payout until work is approved)
+curl -X POST ${base}/api/v1/escrows \\
+  -H "Authorization: Bearer $ORPAY_API_KEY" -H "Content-Type: application/json" \\
+  -d '{"seller":"@developer","currency":"NGN","description":"Landing page",
+       "milestones":[{"label":"Design approved","amount":"40000"},
+                     {"label":"Site delivered","amount":"60000"}],
+       "ship_by_days":14,"review_days":3,"reference":"job-17"}'
+# Send the client to funding_url. Events: escrow.funded, escrow.dispatched,
+# escrow.milestone_released, escrow.disputed, escrow.completed,
+# escrow.refunded, escrow.resolved, escrow.expired`
 }
 
 function bindAppCards(apps) {
@@ -154,10 +166,12 @@ function bindAppCards(apps) {
       save.onclick = async () => {
         const webhook_url = card.querySelector('[data-field="webhook_url"]').value.trim()
         const settlement_address = card.querySelector('[data-field="settlement_address"]').value.trim()
+        const arbiter_address = card.querySelector('[data-field="arbiter_address"]').value.trim()
         if (!isAddress(settlement_address)) return ctx.toast('Settlement wallet must be a 64-character address', 'err')
+        if (arbiter_address && !isAddress(arbiter_address)) return ctx.toast('Arbiter must be a 64-character address', 'err')
         save.disabled = true
         try {
-          await api.updateApp(ctx.state.seed, a.id, { webhook_url, settlement_address })
+          await api.updateApp(ctx.state.seed, a.id, { webhook_url, settlement_address, arbiter_address })
           ctx.toast('Settings saved')
         } catch (err) {
           ctx.toast(err.message, 'err')

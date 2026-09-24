@@ -140,3 +140,36 @@ func (c *Client) WaitCommitted(id string, timeout time.Duration) error {
 	}
 	return fmt.Errorf("tx %s not committed within %s", id, timeout)
 }
+
+// Escrow is an escrow's on-chain state as the node reports it.
+type Escrow struct {
+	ID           string         `json:"id"`
+	Ref          string         `json:"ref"`
+	Asset        string         `json:"asset"`
+	Buyer        types.Address  `json:"buyer"`
+	Seller       types.Address  `json:"seller"`
+	Arbiter      types.Address  `json:"arbiter"`
+	Milestones   []types.Amount `json:"milestones"`
+	Released     int            `json:"released"`
+	Balance      types.Amount   `json:"balance"`
+	Status       string         `json:"status"`
+	CreatedAt    int64          `json:"created_at"`
+	ShipBy       int64          `json:"ship_by"`
+	ReviewSecs   int64          `json:"review_secs"`
+	DispatchedAt int64          `json:"dispatched_at"`
+	Tracking     string         `json:"tracking"`
+	PaidSeller   types.Amount   `json:"paid_seller"`
+	PaidBuyer    types.Amount   `json:"paid_buyer"`
+}
+
+func (c *Client) Escrow(id string) (*Escrow, error) {
+	var r struct {
+		Escrow *Escrow `json:"escrow"`
+	}
+	return r.Escrow, c.GetJSON("/v1/escrows/"+id, &r)
+}
+
+// EscrowsOf lists escrows where a is buyer, seller or arbiter.
+func (c *Client) EscrowsOf(a types.Address) (out []*Escrow, err error) {
+	return out, c.GetJSON("/v1/accounts/"+string(a)+"/escrows", &out)
+}

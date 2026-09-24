@@ -67,6 +67,15 @@ func (h *Hash) UnmarshalText(b []byte) error {
 	return nil
 }
 
+// MustHash is ParseHash for trusted input; it panics on error.
+func MustHash(s string) Hash {
+	h, err := ParseHash(s)
+	if err != nil {
+		panic(err)
+	}
+	return h
+}
+
 // ParseHash decodes a hex hash.
 func ParseHash(s string) (Hash, error) {
 	var h Hash

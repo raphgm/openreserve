@@ -111,6 +111,7 @@ function appCard(a) {
           <label>Brand colour<input data-field="brand_color" type="color" value="${ctx.esc(a.brand_color || '#4f46e5')}"></label>
         </div>
         <div class="brand-preview" data-preview><span class="logo cobrand">${a.logo_type ? partnerMark({ ...a, status: 'approved', logo_url: `/api/apps/${a.id}/logo?v=${Date.parse(a.logo_at) || 0}` }) : `<span class="partner-mark">${ctx.esc((a.brand_name || a.name).slice(0, 1).toUpperCase())}</span>`}<span class="partner-name">${ctx.esc(a.brand_name || a.name)}</span><span class="cobrand-x">×</span><span class="cobrand-orpay">ORPay</span></span></div>
+        <label>Escrow terms buyers must accept <span class="muted">(returns are not supported)</span><textarea data-field="escrow_policy" rows="3" maxlength="4000" placeholder="No returns. Inspect the item on delivery. Disputes only for items not as described.">${ctx.esc(a.escrow_policy ?? '')}</textarea></label>
         <label>Escrow arbiter (settles disputes; defaults to your wallet)<input data-field="arbiter_address" class="mono" value="${ctx.esc(a.arbiter_address ?? '')}" placeholder="${ctx.esc(a.owner)}"></label>
         <button class="ghost small" data-act="save">Save settings</button>
         <details>
@@ -214,9 +215,10 @@ function bindAppCards(apps) {
         save.disabled = true
         try {
           const website = card.querySelector('[data-field="website"]').value.trim()
+          const escrow_policy = card.querySelector('[data-field="escrow_policy"]').value.trim()
           const brand_name = card.querySelector('[data-field="brand_name"]').value.trim()
           const brand_color = card.querySelector('[data-field="brand_color"]').value
-          await api.updateApp(ctx.state.seed, a.id, { webhook_url, settlement_address, arbiter_address, brand_name, brand_color, website })
+          await api.updateApp(ctx.state.seed, a.id, { webhook_url, settlement_address, arbiter_address, brand_name, brand_color, website, escrow_policy })
           ctx.toast('Settings saved')
         } catch (err) {
           ctx.toast(err.message, 'err')

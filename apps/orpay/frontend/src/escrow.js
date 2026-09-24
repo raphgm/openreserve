@@ -93,6 +93,8 @@ function renderCreate() {
           <label>Review period (days)<input id="review" type="number" min="1" max="90" value="3" required></label>
         </div>
         <label>Reference <span class="muted">(optional)</span><input id="ref" maxlength="64" placeholder="e.g. PN-8291-X"></label>
+        <label>Seller's terms <span class="muted">(recommended; returns are not supported)</span><textarea id="terms" rows="3" maxlength="4000" placeholder="e.g. No returns. Inspect the item on delivery. Disputes only for items not as described."></textarea></label>
+        <label class="check" id="terms-ok-row" hidden><input type="checkbox" id="terms-ok"> I have read and accept these terms</label>
         <p class="hint" id="total"></p>
         <p class="error" id="err"></p>
         <button class="primary" id="go">Lock funds</button>
@@ -126,6 +128,7 @@ function renderCreate() {
   }
   addMilestone()
   setAsset(asset)
+  ctx.$('#terms').oninput = () => (ctx.$('#terms-ok-row').hidden = !ctx.$('#terms').value.trim())
 
   ctx.$('#f').onsubmit = async (e) => {
     e.preventDefault()
@@ -145,10 +148,14 @@ function renderCreate() {
       })
       const shipDays = Number(ctx.$('#ship').value)
       const reviewDays = Number(ctx.$('#review').value)
+      const termsText = ctx.$('#terms').value.trim()
+      if (termsText && !ctx.$('#terms-ok').checked) throw new Error('Tick the box to confirm you accept the terms.')
       btn.disabled = true
       btn.textContent = 'Locking…'
+      // Accepted terms are stored by hash; the hash goes on-chain in the memo.
+      const memo = termsText ? (await api.saveTerms(termsText)).memo : ''
       const id = await escrowOp({
-        seed: ctx.state.seed, op: 'create', seller, arbiter, milestones, asset,
+        seed: ctx.state.seed, op: 'create', seller, arbiter, milestones, asset, memo,
         shipBy: Date.now() + shipDays * DAY, reviewSecs: reviewDays * 86_400, ref: ctx.$('#ref').value.trim(),
       })
       await waitForCommit(id)
@@ -259,6 +266,21 @@ export async function renderEscrow(id, preloaded) {
     <section class="card"><div class="stack" id="actions">${acts.join('')}</div><p class="error" id="err"></p></section>
     <section class="card"><h2>Progress</h2><ol class="steps">${steps}</ol></section>
     <section class="card"><h2>Milestones</h2><ul class="milestones">${ms}</ul></section>
+    <section class="card" id="terms-card" hidden></section>
+    ${role !== 'viewer' ? `<section class="card chat-card">
+      <h2>Conversation</h2>
+      <p class="muted small-text">Private to the buyer, seller and arbiter. Add photos of the goods on delivery or proof of dispatch; the arbiter uses them in disputes.</p>
+      <ul class="chat" id="chat"><li class="empty">Loading…</li></ul>
+      <form id="chat-form" class="chat-form" autocomplete="off">
+        <textarea id="chat-text" rows="2" maxlength="2000" placeholder="Write a message"></textarea>
+        <div class="row chat-actions">
+          <label class="ghost small file-btn">📷 Photos<input id="chat-photos" type="file" accept="image/*" multiple hidden></label>
+          <span class="small-text muted" id="chat-files"></span>
+          <button class="primary small" id="chat-send">Send</button>
+        </div>
+        <p class="error" id="chat-err"></p>
+      </form>
+    </section>` : ''}
     <section class="card"><h2>On-chain record</h2><ul class="timeline">${history
       .slice()
       .reverse()
@@ -279,6 +301,8 @@ export async function renderEscrow(id, preloaded) {
       .join('')}</ul></section>`
 
   ctx.$('#back').onclick = renderEscrows
+  showTerms(history)
+  if (role !== 'viewer') bindChat(e.id)
   const split = ctx.$('#split')
   if (split)
     split.oninput = () => {
@@ -364,7 +388,9 @@ export async function renderFundRequest(id) {
         <dt>Your review period</dt><dd>${r.review_days} days after delivery</dd>
       </dl>
       <ul class="milestones">${r.milestones.map((m) => `<li><span>${ctx.esc(m.label)}</span><strong>${money(m.amount)}</strong><span class="pending">Held</span></li>`).join('')}</ul>
-      <p class="small-text muted">Your money is locked on-chain, not held by ${ctx.esc(app.name)}. You release each milestone when you're satisfied. If there's a problem, open a dispute and the arbiter decides.</p>
+      <p class="small-text muted">Your money is locked on-chain, not held by ${ctx.esc(app.brand_name || app.name)}. Inspect the goods when they arrive and release payment when you're satisfied. If they're not as described, open a dispute and the arbiter decides.</p>
+      ${r.policy ? `<div class="terms-box"><p class="label">Seller's terms</p><p class="terms-text">${ctx.esc(r.policy)}</p></div>
+      <label class="check"><input type="checkbox" id="accept"> I have read and accept these terms. I understand returns are not accepted.</label>` : ''}
       <p class="error" id="err"></p>
       ${expired ? '<p class="banner">This request has expired. Ask for a new one.</p>' : `<button class="primary" id="fund">Lock ${money(r.total)} in escrow</button>`}
     </section>`
@@ -373,6 +399,10 @@ export async function renderFundRequest(id) {
   if (!ctx.state.seed) btn.textContent = 'Open ORPay wallet to fund'
   btn.onclick = async () => {
     if (!ctx.state.seed) return ctx.requireWallet()
+    if (r.policy && !ctx.$('#accept').checked) {
+      ctx.$('#err').textContent = 'Please read and accept the seller\'s terms first.'
+      return
+    }
     const need = BigInt(r.total)
     const have = BigInt(r.asset ? ctx.state.account?.assets?.[r.asset] ?? 0 : ctx.state.account?.balance ?? 0)
     if (ctx.state.account && need > have) {
@@ -385,6 +415,7 @@ export async function renderFundRequest(id) {
       const txid = await escrowOp({
         seed: ctx.state.seed, op: 'create', seller: r.seller, arbiter: r.arbiter, asset: r.asset ?? '',
         milestones: r.milestones.map((m) => BigInt(m.amount)), ref: r.id,
+        memo: r.terms_memo ?? '',
         shipBy: Date.now() + r.ship_by_days * DAY, reviewSecs: r.review_days * 86_400,
       })
       await waitForCommit(txid)
@@ -396,5 +427,91 @@ export async function renderFundRequest(id) {
       btn.disabled = false
       btn.textContent = `Lock ${money(r.total)} in escrow`
     }
+  }
+}
+
+// Show the terms the buyer accepted and confirm their hash is on-chain.
+async function showTerms(history) {
+  const memo = history[0]?.tx?.memo ?? ''
+  const card = ctx.$('#terms-card')
+  if (!card || !memo.startsWith('terms:')) return
+  const hash = memo.slice(6)
+  const t = await api.terms(hash).catch(() => null)
+  if (!t || !ctx.$('#terms-card')) return
+  const local = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(t.text))
+  const ok = [...new Uint8Array(local)].map((b) => b.toString(16).padStart(2, '0')).join('') === hash
+  card.hidden = false
+  card.innerHTML = `<div class="section-head"><h2>Terms accepted by the buyer</h2>${ok ? '<span class="chip-s ok">Matches on-chain record</span>' : '<span class="chip-s bad">Does not match</span>'}</div>
+    <p class="terms-text">${ctx.esc(t.text)}</p><p class="small-text muted mono">sha256 ${hash.slice(0, 16)}…</p>`
+}
+
+// Shrink photos before upload (phones take 5-10 MB pictures).
+async function shrink(file, max = 1600) {
+  const bmp = await createImageBitmap(file)
+  const scale = Math.min(1, max / Math.max(bmp.width, bmp.height))
+  const canvas = document.createElement('canvas')
+  canvas.width = Math.round(bmp.width * scale)
+  canvas.height = Math.round(bmp.height * scale)
+  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height)
+  const blob = await new Promise((r) => canvas.toBlob(r, 'image/jpeg', 0.85))
+  const buf = new Uint8Array(await blob.arrayBuffer())
+  let bin = ''
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000))
+  return btoa(bin)
+}
+
+let chatTimer
+function bindChat(id) {
+  const load = async () => {
+    const ul = ctx.$('#chat')
+    if (!ul) return clearInterval(chatTimer)
+    let msgs
+    try {
+      msgs = await api.escrowMessages(ctx.state.seed, id)
+    } catch (err) {
+      ul.innerHTML = `<li class="empty">${ctx.esc(err.message)}</li>`
+      return
+    }
+    await ctx.resolveNames(msgs.map((m) => m.from))
+    ul.innerHTML = msgs.length
+      ? msgs
+          .map((m) => `<li class="msg ${m.from === ctx.state.address ? 'mine' : ''}">
+            <span class="msg-meta">${label(m.from)} · ${m.role} · ${when(Date.parse(m.at))}</span>
+            ${m.text ? `<p>${ctx.esc(m.text)}</p>` : ''}
+            ${(m.files ?? []).map((f) => `<a href="${ctx.esc(f.url)}" target="_blank" rel="noopener"><img class="evidence" src="${ctx.esc(f.url)}" alt="Photo evidence" loading="lazy"></a><span class="small-text muted mono">sha256 ${f.sha256.slice(0, 12)}…</span>`).join('')}
+          </li>`)
+          .join('')
+      : '<li class="empty">No messages yet.</li>'
+  }
+  load()
+  clearInterval(chatTimer)
+  chatTimer = setInterval(() => {
+    if (!ctx.$('#chat')) return clearInterval(chatTimer)
+    if (document.activeElement?.id !== 'chat-text') load()
+  }, 5000)
+  const photos = ctx.$('#chat-photos')
+  photos.onchange = () => (ctx.$('#chat-files').textContent = photos.files.length ? `${photos.files.length} photo(s) attached` : '')
+  ctx.$('#chat-form').onsubmit = async (e) => {
+    e.preventDefault()
+    const btn = ctx.$('#chat-send')
+    const err = ctx.$('#chat-err')
+    err.textContent = ''
+    const text = ctx.$('#chat-text').value.trim()
+    const files = [...photos.files].slice(0, 4)
+    if (!text && !files.length) return
+    btn.disabled = true
+    btn.textContent = files.length ? 'Uploading…' : 'Sending…'
+    try {
+      const encoded = await Promise.all(files.map((f) => shrink(f)))
+      await api.postEscrowMessage(ctx.state.seed, id, text, encoded)
+      ctx.$('#chat-text').value = ''
+      photos.value = ''
+      ctx.$('#chat-files').textContent = ''
+      await load()
+    } catch (e2) {
+      err.textContent = e2.message
+    }
+    btn.disabled = false
+    btn.textContent = 'Send'
   }
 }

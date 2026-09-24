@@ -69,7 +69,11 @@ const escrow = await orpay.createEscrow({
 ```
 
 The client locks the funds on-chain from their own wallet; neither your app
-nor ORPay holds them. The client releases each milestone; either side can
+nor ORPay holds them. **Returns are not supported:** set your escrow terms in
+the Developers tab (or pass `policy` per escrow). Buyers must accept them
+before funding, and a hash of the exact text goes on-chain with their
+payment. Buyer, seller and arbiter share a private conversation with photo
+evidence for disputes. The client releases each milestone; either side can
 open a dispute, which your app's arbiter wallet settles in ORPay. Webhooks:
 `escrow.funded`, `escrow.dispatched`, `escrow.milestone_released`,
 `escrow.disputed`, `escrow.completed`, `escrow.refunded`, `escrow.resolved`,

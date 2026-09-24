@@ -275,6 +275,10 @@ async function signedCall(seed, method, path, body) {
 
 export const api = {
   escrowRequest: (id) => call(`/api/escrow-requests/${encodeURIComponent(id)}`),
+  saveTerms: (text) => call('/api/escrow-terms', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ text }) }),
+  terms: (hash) => call(`/api/escrow-terms/${hash}`),
+  escrowMessages: (seed, id) => signedCall(seed, 'GET', `/api/escrows/${id}/messages`),
+  postEscrowMessage: (seed, id, text, photos = []) => signedCall(seed, 'POST', `/api/escrows/${id}/messages`, { text, photos }),
   invoice: (id) => call(`/api/invoices/${encodeURIComponent(id)}`),
   apps: (seed) => signedCall(seed, 'GET', '/api/apps'),
   requestApp: (seed, body) => signedCall(seed, 'POST', '/api/apps', body),

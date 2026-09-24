@@ -4,7 +4,7 @@ import {
   payLink, readPayLink, registerMessage, seedToWords, send, signMessage, waitForCommit, wordsToSeed,
 } from './orp.js'
 import { renderSVG } from 'uqr'
-import { initPools, renderPool, renderPools } from './pools.js'
+import { duePools, initPools, renderPool, renderPools } from './pools.js'
 import { initCheckout, renderCheckout } from './checkout.js'
 import { initDevelopers, renderDevelopers } from './developers.js'
 import { confirmDeposit, initMoney, renderAddMoney, renderWithdraw } from './money.js'
@@ -228,6 +228,7 @@ function showView(view, render) {
 function homeHTML() {
   return `
       <section class="card balance" id="balance"></section>
+      <section id="reminders"></section>
       <section class="card">
         <div class="tabs" role="tablist">
           <button role="tab" data-tab="send">Send</button>
@@ -241,11 +242,62 @@ function homeHTML() {
       </section>`
 }
 
+// Ajo reminders: contributions this wallet still owes, soonest first.
+let lastPoolCheck = 0
+async function checkReminders(force = false) {
+  if (!force && Date.now() - lastPoolCheck < 30_000) return
+  lastPoolCheck = Date.now()
+  let pools = []
+  try {
+    pools = await node.pools(state.address)
+  } catch {
+    return
+  }
+  state.due = duePools(pools, state.address)
+    .map((p) => ({ p, due: p.round_secs ? p.started_at + (p.round + 1) * p.round_secs * 1000 : 0 }))
+    .sort((a, b) => (a.due || Infinity) - (b.due || Infinity))
+  renderReminders()
+  for (const { p, due } of state.due) {
+    if (!due || due - Date.now() > 86_400_000) continue
+    const key = `orpay.remind.${p.id}.${p.round}`
+    try {
+      if (localStorage.getItem(key)) continue
+      localStorage.setItem(key, '1')
+    } catch {
+      continue
+    }
+    const msg = `${p.name}: your ${formatMoney(p.contribution, p.asset ?? '')} is ${due < Date.now() ? 'overdue' : 'due soon'}`
+    toast(msg, due < Date.now() ? 'err' : 'ok')
+    try {
+      if (document.hidden && Notification.permission === 'granted') new Notification('ORPay ajo', { body: msg, icon: '/icon-192.png' })
+    } catch {}
+  }
+}
+
+function renderReminders() {
+  const el = $('#reminders')
+  if (!el) return
+  const due = state.due ?? []
+  el.innerHTML = due.length
+    ? `<div class="card reminders"><h2>Ajo payments due</h2><ul class="x-list">${due
+        .map(({ p, due }) => {
+          const overdue = due && due < Date.now()
+          return `<li><span class="x-badge ${overdue ? 'bad' : ''}">◎</span><span class="who"><strong>${esc(p.name)}</strong><small>${formatMoney(p.contribution, p.asset ?? '')} · ${
+            due ? (overdue ? 'overdue' : `due ${new Date(due).toLocaleDateString()}`) : 'this round'
+          }</small></span><button class="primary small" data-remind="${p.id}">Pay</button></li>`
+        })
+        .join('')}</ul></div>`
+    : ''
+  el.querySelectorAll('[data-remind]').forEach((b) => (b.onclick = () => showView('pools', () => renderPool(b.dataset.remind))))
+}
+
 function bindHome() {
   app.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => ((state.tab = b.dataset.tab), renderPanel())))
   renderBalance()
   renderPanel()
   renderActivity()
+  renderReminders()
+  checkReminders(true)
 }
 
 // Tell the user about incoming payments that arrive while the app is open.
@@ -273,6 +325,7 @@ async function refresh() {
     const changed = JSON.stringify(history) !== JSON.stringify(state.history)
     Object.assign(state, { status, account, history, online: true })
     notifyIncoming(history)
+    checkReminders()
     renderBalance()
     renderHeader()
     const fee = $('#fee')

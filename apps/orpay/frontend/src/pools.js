@@ -15,6 +15,26 @@ const label = (addr) => {
   return n ? `@${ctx.esc(n)}` : `<span class="mono">${ctx.short(addr)}</span>`
 }
 
+const DAY = 86_400_000
+const dueIn = (ms) => {
+  const d = ms - Date.now()
+  if (d <= 0) return 'overdue'
+  const days = Math.floor(d / DAY)
+  if (days >= 1) return `due in ${days} day${days === 1 ? '' : 's'}`
+  const hours = Math.max(1, Math.floor(d / 3_600_000))
+  return `due in ${hours} hour${hours === 1 ? '' : 's'}`
+}
+const dueAt = (p) => (p.round_secs && p.status === 'active' ? p.started_at + (p.round + 1) * p.round_secs * 1000 : 0)
+const cadence = (secs) => ({ 604800: 'weekly', 1209600: 'every 2 weeks', 2592000: 'monthly' })[secs] ?? `every ${Math.round(secs / 86400)} days`
+
+// Pools where this member still owes the current round's contribution.
+export function duePools(pools, me) {
+  return pools.filter((p) => {
+    const i = p.members.indexOf(me)
+    return i >= 0 && p.status === 'active' && !p.paid[i]
+  })
+}
+
 const statusChip = (p) =>
   ({ forming: '<span class="chip-s warn">Waiting for members</span>', active: '<span class="chip-s ok">Active</span>', done: '<span class="chip-s">Completed</span>' })[p.status]
 
@@ -55,11 +75,11 @@ export async function renderPools() {
           <span class="pool-avatar">${ctx.esc(p.name.slice(0, 1).toUpperCase())}</span>
           <span class="who">
             <strong>${ctx.esc(p.name)}</strong>
-            <small>${formatMoney(p.contribution, p.asset ?? '')} each · ${p.members.length} members · ${
+            <small>${formatMoney(p.contribution, p.asset ?? '')} ${p.round_secs ? cadence(p.round_secs) : 'each'} · ${p.members.length} members · ${
               p.status === 'active' ? `round ${p.round + 1} of ${p.members.length}` : p.status
             }</small>
           </span>
-          ${myTurn ? '<span class="chip-s ok">Your turn</span>' : needsMe ? '<span class="chip-s warn">Action needed</span>' : statusChip(p)}
+          ${needsMe && dueAt(p) ? `<span class="chip-s ${dueAt(p) < Date.now() ? 'bad' : 'warn'}">Pay · ${dueIn(dueAt(p))}</span>` : myTurn ? '<span class="chip-s ok">Your turn</span>' : needsMe ? '<span class="chip-s warn">Action needed</span>' : statusChip(p)}
         </button></li>`
     })
     .join('')
@@ -76,6 +96,16 @@ function renderCreate() {
         <label>Pool name<input id="name" maxlength="64" placeholder="Family ajo" required></label>
         ${ctx.currencies().length > 1 ? `<div class="seg" role="radiogroup" aria-label="Currency">${ctx.currencies().map((c) => `<button type="button" role="radio" data-cur="${c}">${assetLabel(c)}</button>`).join('')}</div>` : ''}
         <label>Contribution per round<input id="amount" inputmode="decimal" placeholder="5,000" required></label>
+        <div class="row">
+          <label>Rounds<select id="cadence">
+            <option value="604800">Weekly</option>
+            <option value="1209600">Every 2 weeks</option>
+            <option value="2592000" selected>Monthly</option>
+            <option value="0">No due dates</option>
+          </select></label>
+          <label class="check deposit-check"><input type="checkbox" id="deposit" checked> Members pay one contribution as a deposit</label>
+        </div>
+        <p class="hint">With due dates, the member whose turn it is can collect once the round is due, even if someone hasn't paid. A missed payment is covered from that member's deposit and recorded for everyone to see. Unused deposits are returned at the end.</p>
         <label>Members in payout order
           <textarea id="members" rows="5" placeholder="One per line: @username or address&#10;The first person receives the first pot."></textarea>
         </label>
@@ -112,8 +142,10 @@ function renderCreate() {
       if (members.length < 2) throw new Error('Add at least one other member.')
       btn.disabled = true
       btn.textContent = 'Creating…'
+      const roundSecs = Number(ctx.$('#cadence').value)
+      const deposit = roundSecs && ctx.$('#deposit').checked ? contribution : 0n
       const id = await poolOp({
-        seed: ctx.state.seed, op: 'create', name: ctx.$('#name').value.trim(), members, contribution, asset,
+        seed: ctx.state.seed, op: 'create', name: ctx.$('#name').value.trim(), members, contribution, asset, roundSecs, deposit,
       })
       await waitForCommit(id)
       ctx.toast('Pool created. Share it with the members so they can join.')
@@ -191,10 +223,14 @@ export async function renderPool(id, preloaded) {
       let pay = ''
       if (p.status === 'forming') pay = p.joined[i] ? '<span class="tick">Joined</span>' : '<span class="pending">Not joined</span>'
       else if (p.status === 'active') pay = p.paid[i] ? '<span class="tick">Paid</span>' : '<span class="pending">Not paid</span>'
+      const extra = []
+      if (p.defaults?.[i]) extra.push(`<span class="chip-s bad">Missed ${p.defaults[i]} payment${p.defaults[i] === 1 ? '' : 's'}</span>`)
+      if (p.deposit) extra.push(`<span class="small-text muted">Deposit held ${money(p.deposits?.[i] ?? 0)}</span>`)
+      if (p.paid_out?.[i]) extra.push(`<span class="small-text muted">Received ${money(p.paid_out[i])}</span>`)
       return `
         <li class="${i === me ? 'me' : ''}">
           <span class="pos">${i + 1}</span>
-          <span class="who"><strong>${label(m)}</strong>${state}</span>
+          <span class="who"><strong>${label(m)}</strong>${state}${extra.length ? `<span class="member-extra">${extra.join('')}</span>` : ''}</span>
           ${pay}
         </li>`
     })
@@ -208,11 +244,14 @@ export async function renderPool(id, preloaded) {
     const btns = []
     if (!p.paid[me]) btns.push(`<button class="primary" data-op="contribute">Pay my ${money(p.contribution)}</button>`)
     if (me === p.round) {
-      btns.push(
-        paidCount === n
-          ? `<button class="primary" data-op="claim">Take my ${money(pot)}</button>`
-          : `<p class="muted small-text">It's your turn. You can take the pot once all ${n} members have paid (${paidCount}/${n} so far).</p>`,
-      )
+      const due = dueAt(p)
+      const coverable = p.members.reduce((s, _, j) => s + (!p.paid[j] && BigInt(p.deposits?.[j] ?? 0) >= BigInt(p.contribution) ? BigInt(p.contribution) : 0n), 0n)
+      if (paidCount === n) btns.push(`<button class="primary" data-op="claim">Take my ${money(pot)}</button>`)
+      else if (due && Date.now() >= due)
+        btns.push(`<button class="primary" data-op="claim">Collect now · ${money(BigInt(p.balance) + coverable)}</button>
+          <p class="muted small-text">The round is past due. ${n - paidCount} member(s) haven't paid; their deposits cover what they can, and the missed payments are recorded.</p>`)
+      else
+        btns.push(`<p class="muted small-text">It's your turn. You can take the pot once all ${n} members have paid (${paidCount}/${n} so far)${due ? `, or collect what's in on ${new Date(due).toLocaleDateString()} when the round is due` : ''}.</p>`)
     }
     if (!btns.length) btns.push(`<p class="muted small-text">You've paid this round. ${receiver === ctx.state.address ? '' : `${label(receiver)} receives the pot once everyone has paid.`}</p>`)
     action = btns.join('')
@@ -231,7 +270,8 @@ export async function renderPool(id, preloaded) {
       </div>
       ${p.status === 'active' ? `
       <div class="progress" role="progressbar" aria-valuenow="${paidCount}" aria-valuemax="${n}"><span data-w="${(paidCount / n) * 100}"></span></div>
-      <p class="progress-label">${paidCount} of ${n} paid this round · ${label(receiver)} receives${nextUp ? ` · next: ${label(nextUp)}` : ''}</p>` : ''}
+      <p class="progress-label">${paidCount} of ${n} paid this round · ${label(receiver)} receives${nextUp ? ` · next: ${label(nextUp)}` : ''}${dueAt(p) ? ` · ${dueIn(dueAt(p))} (${new Date(dueAt(p)).toLocaleDateString()})` : ''}</p>` : ''}
+      ${p.round_secs ? `<p class="progress-label">Rounds ${cadence(p.round_secs)}${p.deposit ? ` · deposit ${money(p.deposit)} per member` : ''}</p>` : ''}
     </section>
     <section class="card">
       <div class="stack" id="actions">${action}</div>

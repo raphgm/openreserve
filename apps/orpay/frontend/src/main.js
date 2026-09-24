@@ -384,6 +384,7 @@ function renderHeader() {
     h.innerHTML = `
       <span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span>
       <span class="net" id="net"></span>
+      <a class="chip ghost-chip" href="/explorer.html" target="_blank" rel="noopener" title="See every block and transaction">Explorer</a>
       <button class="chip" id="me">${who ? `@${esc(who)}` : 'Claim a username'}</button>`
     $('#me').onclick = () => {
       if (state.view !== 'home') showView('home')

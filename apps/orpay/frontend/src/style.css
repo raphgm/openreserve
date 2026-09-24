@@ -485,3 +485,4 @@ img.pool-avatar.logo-img { padding: 4px; }
 .file-btn { cursor: pointer; border: 1px solid var(--border); border-radius: 12px; padding: 9px 14px; font-size: .85rem; font-weight: 600; }
 header .logo.cobrand ~ .net { visibility: hidden; }
 .chat-form textarea, textarea#terms, textarea[data-field="escrow_policy"] { font-family: inherit; }
+.dispute-queue { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 16px; padding: 12px 14px; margin-top: 12px; }

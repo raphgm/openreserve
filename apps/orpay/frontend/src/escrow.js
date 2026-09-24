@@ -52,7 +52,15 @@ export async function renderEscrows() {
     ul.innerHTML = '<li class="empty">No escrows yet.</li>'
     return
   }
-  ul.innerHTML = list
+  // Arbiters see disputes waiting for them first.
+  const disputes = list.filter((e) => roleOf(e) === 'arbiter' && e.status === 'disputed').sort((a, b) => a.created_at - b.created_at)
+  if (disputes.length) {
+    ctx.$('#list').insertAdjacentHTML('beforebegin', `
+      <div class="dispute-queue"><div class="section-head"><h2>Disputes to resolve</h2><span class="chip-s bad">${disputes.length}</span></div>
+      <p class="muted small-text">You're the arbiter. Read the terms and the conversation, then decide how the locked funds are split.</p></div>`)
+  }
+  const ordered = [...disputes, ...list.filter((e) => !disputes.includes(e))]
+  ul.innerHTML = ordered
     .map((e) => {
       const role = roleOf(e)
       const other = role === 'buyer' ? e.seller : e.buyer
@@ -243,7 +251,13 @@ export async function renderEscrow(id, preloaded) {
     acts.push('<button class="ghost" data-op="refund">Refund the buyer</button>')
   }
   if (role === 'arbiter' && e.status === 'disputed') {
-    acts.push(`<label>Seller's share of ${money(e.balance)}<input id="split" inputmode="decimal" placeholder="0"></label>
+    acts.push(`<p class="label">Decide the dispute</p>
+      <div class="quick">
+        <button type="button" class="ghost small" data-split="0">Full refund to buyer</button>
+        <button type="button" class="ghost small" data-split="half">Split 50/50</button>
+        <button type="button" class="ghost small" data-split="all">Full payment to seller</button>
+      </div>
+      <label>Seller's share of ${money(e.balance)}<input id="split" inputmode="decimal" placeholder="0"></label>
       <p class="hint" id="split-hint">The rest goes back to the buyer.</p>
       <button class="primary" data-op="resolve">Resolve dispute</button>`)
   }
@@ -304,6 +318,14 @@ export async function renderEscrow(id, preloaded) {
   showTerms(history)
   if (role !== 'viewer') bindChat(e.id)
   const split = ctx.$('#split')
+  root.querySelectorAll('[data-split]').forEach((b) => {
+    b.onclick = () => {
+      const bal = BigInt(e.balance)
+      const v = b.dataset.split === 'all' ? bal : b.dataset.split === 'half' ? bal / 2n : 0n
+      split.value = (Number(v) / 1e6).toString()
+      split.oninput()
+    }
+  })
   if (split)
     split.oninput = () => {
       try {

@@ -487,3 +487,8 @@ img.pool-avatar.logo-img { padding: 4px; }
 header .logo.cobrand ~ .net { visibility: hidden; }
 .chat-form textarea, textarea#terms, textarea[data-field="escrow_policy"] { font-family: inherit; }
 .dispute-queue { background: #fff1f2; border: 1px solid #fecdd3; border-radius: 16px; padding: 12px 14px; margin-top: 12px; }
+.logo-pay {
+  font-weight: 700; letter-spacing: .01em;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  -webkit-background-clip: text; background-clip: text; color: transparent;
+}

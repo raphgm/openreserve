@@ -70,7 +70,7 @@ function toast(msg, kind = 'ok') {
 function renderWelcome() {
   app.innerHTML = `
     <main class="narrow">
-      <div class="brand"><span class="logo" role="img" aria-label="ORPay"></span></div>
+      <div class="brand"><span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span></div>
       <h1>Money that moves like messages.</h1>
       <p class="muted">Send ORP to anyone by @username. Your keys stay on this device.</p>
       <div class="stack">
@@ -151,7 +151,7 @@ function renderUnlock() {
   const addr = vaultAddress()
   app.innerHTML = `
     <main class="narrow">
-      <div class="brand"><span class="logo" role="img" aria-label="ORPay"></span></div>
+      <div class="brand"><span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span></div>
       <h1>Welcome back</h1>
       <p class="muted mono">${addr ? short(addr) : ''}</p>
       <form id="f" class="stack">
@@ -382,7 +382,7 @@ function renderHeader() {
   if (h.dataset.who !== who || !h.firstChild) {
     h.dataset.who = who
     h.innerHTML = `
-      <span class="logo" role="img" aria-label="ORPay"></span>
+      <span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span>
       <span class="net" id="net"></span>
       <button class="chip" id="me">${who ? `@${esc(who)}` : 'Claim a username'}</button>`
     $('#me').onclick = () => {
@@ -825,7 +825,7 @@ initEscrow(ctx)
 
 async function renderGuestCheckout(invoice) {
   app.innerHTML = `
-    <header id="header"><span class="logo" role="img" aria-label="ORPay"></span><span class="net"></span>
+    <header id="header"><span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span><span class="net"></span>
       <button class="chip" id="signin">${hasVault() ? 'Unlock wallet' : 'Open ORPay'}</button></header>
     <main class="wallet" id="view"></main>`
   $('#signin').onclick = ctx.requireWallet

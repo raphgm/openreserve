@@ -25,7 +25,7 @@ const (
 
 // CrossChainTransfer represents a movement of value between OpenReserve and an external chain
 type CrossChainTransfer struct {
-	TxHash      string         // The external chain's transaction hash (e.g., 0x...)
+	TxHash      string // The external chain's transaction hash (e.g., 0x...)
 	SourceChain SupportedChain
 	TargetChain SupportedChain
 	Receiver    string
@@ -38,7 +38,7 @@ type CrossChainTransfer struct {
 type State struct {
 	mu        sync.RWMutex
 	Transfers map[string]*CrossChainTransfer // Map of TxHash to Transfer
-	
+
 	// Security: Rate Limiting
 	DailyVolume   float64
 	DailyLimit    float64
@@ -83,7 +83,7 @@ func (s *State) RecordTransfer(txHash string, src, target SupportedChain, receiv
 		Status:      StatusComplete,
 		Timestamp:   time.Now(),
 	}
-	
+
 	s.DailyVolume += amount
 	return nil
 }

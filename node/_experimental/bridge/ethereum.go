@@ -25,7 +25,7 @@ func NewEthereumBridge(state *State, relayers *RelayerNetwork, ls *ledger.State)
 // ProcessLockAndMint is called when a Relayer submits proof that a user locked ERC-20 ORP on Ethereum.
 // It verifies the proof and mints native ORP to the user's OpenReserve address.
 func (eb *EthereumBridge) ProcessLockAndMint(ethTxHash string, receiver string, amount float64, relayerPubKey ed25519.PublicKey, signature []byte) error {
-	
+
 	// 1. Reconstruct the message the relayer should have signed
 	msg := []byte(fmt.Sprintf("MINT:%s:%s:%.2f", ethTxHash, receiver, amount))
 

@@ -38,9 +38,9 @@ func (e *Engine) StartRound(round uint64) {
 	e.State = StatePropose
 	e.Prevotes = NewVoteSet(VoteTypePrevote, round, e.Validators.TotalStake)
 	e.Precommits = NewVoteSet(VoteTypePrecommit, round, e.Validators.TotalStake)
-	
+
 	fmt.Printf("Started Round %d\\n", round)
-	
+
 	// Deterministically select the leader for this round
 	leader := e.Validators.SelectLeader(int64(round))
 	fmt.Printf("Leader selected for round %d: %s (Stake: %.2f ORP)\\n", round, leader.Address, leader.Stake)
@@ -66,7 +66,7 @@ func (e *Engine) HandlePrevote(vote *Vote) {
 	if quorumReached && e.State != StatePrecommit {
 		fmt.Println("2/3+ Prevote Quorum Reached! Moving to Precommit Phase.")
 		e.State = StatePrecommit
-		
+
 		// In a real implementation, the node would now broadcast its own Precommit vote
 	}
 }
@@ -91,7 +91,7 @@ func (e *Engine) HandlePrecommit(vote *Vote) {
 	if quorumReached && e.State != StateCommit {
 		fmt.Println("2/3+ Precommit Quorum Reached! Block Finalized.")
 		e.State = StateCommit
-		
+
 		// In a real implementation, the node would now append the block to the ledger
 		// and immediately StartRound(e.CurrentRound + 1)
 		time.Sleep(1 * time.Second)

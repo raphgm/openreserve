@@ -21,7 +21,7 @@ func (e *Engine) CalculateRatio() float64 {
 	if e.TotalSupply == 0 {
 		return 1.0 // Prevent division by zero, theoretically fully backed if 0 supply
 	}
-	
+
 	tvl := e.Vault.TotalReserveValue()
 	return tvl / e.TotalSupply
 }
@@ -40,6 +40,6 @@ func (e *Engine) GenerateAuditReport() string {
 		status = "INSOLVENT"
 	}
 
-	return fmt.Sprintf("Audit Report:\\nStatus: %s\\nTotal Reserve (USD): $%.2f\\nTotal ORP Supply: %.2f\\nCollateral Ratio: %.2f%%", 
+	return fmt.Sprintf("Audit Report:\\nStatus: %s\\nTotal Reserve (USD): $%.2f\\nTotal ORP Supply: %.2f\\nCollateral Ratio: %.2f%%",
 		status, e.Vault.TotalReserveValue(), e.TotalSupply, ratio)
 }

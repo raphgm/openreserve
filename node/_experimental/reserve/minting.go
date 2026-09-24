@@ -47,7 +47,7 @@ func (mc *MintingController) isAuthorized(pubKey ed25519.PublicKey, message, sig
 // Mint ORP when new collateral is deposited. Requires an authorized custodian signature.
 func (mc *MintingController) Mint(amount float64, pubKey ed25519.PublicKey, signature []byte) error {
 	msg := []byte(fmt.Sprintf("MINT:%.2f", amount))
-	
+
 	if !mc.isAuthorized(pubKey, msg, signature) {
 		return fmt.Errorf("unauthorized minting attempt")
 	}
@@ -59,7 +59,7 @@ func (mc *MintingController) Mint(amount float64, pubKey ed25519.PublicKey, sign
 // Burn ORP when a user redeems it for real-world collateral. Requires custodian authorization.
 func (mc *MintingController) Burn(amount float64, pubKey ed25519.PublicKey, signature []byte) error {
 	msg := []byte(fmt.Sprintf("BURN:%.2f", amount))
-	
+
 	if !mc.isAuthorized(pubKey, msg, signature) {
 		return fmt.Errorf("unauthorized burning attempt")
 	}

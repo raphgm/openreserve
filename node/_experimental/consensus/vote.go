@@ -58,6 +58,6 @@ func (vs *VoteSet) AddVote(vote *Vote, validatorStake float64) bool {
 	}
 	vs.Votes[vote.ValidatorAddress] = vote
 	vs.TotalStake += validatorStake
-	
+
 	return vs.TotalStake > vs.RequiredStake
 }

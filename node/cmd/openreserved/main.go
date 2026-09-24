@@ -69,21 +69,25 @@ func main() {
 	defer stop()
 
 	handler := api.Handler(c)
+	h := &health{dataDir: *dataDir, started: time.Now()}
+	h.beat()
 	if key != nil {
+		h.role = "producer"
 		if keys.Address(key) != g.Proposer {
 			log.Fatalf("key %s is not the genesis proposer %s", keys.Address(key), g.Proposer)
 		}
-		go produce(ctx, c, key, *interval)
+		go produce(ctx, c, key, *interval, h)
 	} else {
+		h.role = "replica"
 		up, err := url.Parse(*follow)
 		if err != nil {
 			log.Fatal(err)
 		}
 		handler = forwardSubmits(handler, c, up)
-		go replicate(ctx, c, up)
+		go replicate(ctx, c, up, h)
 	}
 
-	handler = limit(handler, *readRate, *submitRate, *trustProxy)
+	handler = h.routes(c, limit(handler, *readRate, *submitRate, *trustProxy))
 	srv := &http.Server{Addr: *listen, Handler: handler, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		<-ctx.Done()
@@ -97,7 +101,7 @@ func main() {
 	}
 }
 
-func produce(ctx context.Context, c *chain.Chain, key ed25519.PrivateKey, every time.Duration) {
+func produce(ctx context.Context, c *chain.Chain, key ed25519.PrivateKey, every time.Duration, h *health) {
 	t := time.NewTicker(every)
 	defer t.Stop()
 	for {
@@ -110,6 +114,7 @@ func produce(ctx context.Context, c *chain.Chain, key ed25519.PrivateKey, every 
 				log.Printf("produce: %v", err)
 				continue
 			}
+			h.beat()
 			if b != nil {
 				log.Printf("block %d: %d txs, hash %s", b.Header.Height, len(b.Txs), b.Header.Hash())
 			}
@@ -119,7 +124,7 @@ func produce(ctx context.Context, c *chain.Chain, key ed25519.PrivateKey, every 
 
 // replicate long-polls the upstream for new blocks and verifies each one
 // locally, so a replica never trusts upstream state it has not re-executed.
-func replicate(ctx context.Context, c *chain.Chain, up *url.URL) {
+func replicate(ctx context.Context, c *chain.Chain, up *url.URL, h *health) {
 	client := &http.Client{Timeout: 40 * time.Second}
 	backoff := time.Second
 	for ctx.Err() == nil {
@@ -148,6 +153,7 @@ func replicate(ctx context.Context, c *chain.Chain, up *url.URL) {
 			continue
 		}
 		backoff = time.Second
+		h.beat()
 	}
 }
 

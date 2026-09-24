@@ -66,6 +66,22 @@ Copy `deploy/backups/` off the server too (object storage, another host).
 unzipped `blocks.jsonl` into it, then start again. The node replays and
 re-verifies every block on startup.
 
+## Monitoring
+
+```bash
+crontab -e
+# * * * * * cd /opt/openreserve/deploy && ./monitor.sh
+```
+
+`monitor.sh` checks the node's `/healthz` (producer loop alive, replica in
+sync, enough disk), the ORPay backend, and that the naira reserve fully backs
+the NGN in circulation. It posts to `ALERT_WEBHOOK` when something breaks and
+again when it recovers.
+
+Inside the Docker network the node also serves Prometheus metrics at
+`http://node:8080/metrics` (height, block age, mempool, supply, issued assets,
+pools, open and disputed escrows). It is not exposed publicly.
+
 ## Rate limits
 
 Per client IP: 600 reads/min and 60 transactions/min at the node; signups

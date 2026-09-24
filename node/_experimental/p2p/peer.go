@@ -32,7 +32,7 @@ func (p *Peer) ReadLoop(msgCh chan<- Message) {
 			fmt.Printf("peer read error: %v\\n", err)
 			return // disconnect on error
 		}
-		
+
 		// Send the decoded message to the server's processing channel
 		msgCh <- msg
 	}

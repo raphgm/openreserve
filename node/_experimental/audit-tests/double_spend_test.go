@@ -1,9 +1,9 @@
 package audit
 
 import (
+	"github.com/openreserve/node/ledger"
 	"sync"
 	"testing"
-	"github.com/openreserve/node/ledger"
 )
 
 // TestDoubleSpendAttack heavily bombards the Ledger with concurrent transactions
@@ -27,7 +27,7 @@ func TestDoubleSpendAttack(t *testing.T) {
 		wg.Add(1)
 		go func(iteration int) {
 			defer wg.Done()
-			
+
 			// Odd threads send to Bob, Even threads send to Charlie
 			target := bob
 			if iteration%2 == 0 {

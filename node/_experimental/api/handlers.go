@@ -79,7 +79,7 @@ func (s *Server) handlePostTransaction(w http.ResponseWriter, r *http.Request) {
 // handleGetValidators returns the active consensus validator set
 func (s *Server) handleGetValidators(w http.ResponseWriter, r *http.Request) {
 	var validators []map[string]interface{}
-	
+
 	for addr, val := range s.Consensus.Validators.Validators {
 		validators = append(validators, map[string]interface{}{
 			"address": addr,

@@ -20,7 +20,7 @@ type GenesisBlock struct {
 func DefaultMainnetGenesis() *GenesisBlock {
 	gb := &GenesisBlock{
 		ChainID:     "openreserve-mainnet-v1",
-		Timestamp:   time.Now().UTC(), 
+		Timestamp:   time.Now().UTC(),
 		TotalSupply: 1_000_000_000.0, // 1 Billion ORP
 		Allocations: GetInitialAllocations(),
 	}

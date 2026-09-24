@@ -530,3 +530,35 @@ func (c *Chain) EscrowsOf(a types.Address) []*ledger.Escrow {
 	slices.SortFunc(out, func(x, y *ledger.Escrow) int { return int(y.CreatedAt - x.CreatedAt) })
 	return out
 }
+
+// Counts summarizes pools and escrows for metrics.
+type Counts struct {
+	TxsTotal       int
+	Pools          int
+	PoolsActive    int
+	Escrows        int
+	EscrowsOpen    int
+	EscrowsDispute int
+	EscrowLocked   map[string]types.Amount // by asset ("" = ORP)
+}
+
+func (c *Chain) Counts() Counts {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := Counts{TxsTotal: len(c.txIndex), Pools: len(c.state.Pools), Escrows: len(c.state.Escrows), EscrowLocked: map[string]types.Amount{}}
+	for _, p := range c.state.Pools {
+		if p.Status == ledger.PoolActive {
+			out.PoolsActive++
+		}
+	}
+	for _, e := range c.state.Escrows {
+		if e.Open() {
+			out.EscrowsOpen++
+			out.EscrowLocked[e.Asset] += e.Balance
+		}
+		if e.Status == ledger.EscrowDisputed {
+			out.EscrowsDispute++
+		}
+	}
+	return out
+}

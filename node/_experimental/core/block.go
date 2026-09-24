@@ -25,11 +25,11 @@ type Block struct {
 
 // CalculateHash generates the unique SHA256 hash for the block header
 func (b *Block) CalculateHash() []byte {
-	record := fmt.Sprintf("%d:%x:%x:%d:%s", 
-		b.Header.Version, 
-		b.Header.PrevBlockHash, 
-		b.Header.MerkleRoot, 
-		b.Header.Timestamp, 
+	record := fmt.Sprintf("%d:%x:%x:%d:%s",
+		b.Header.Version,
+		b.Header.PrevBlockHash,
+		b.Header.MerkleRoot,
+		b.Header.Timestamp,
 		b.Header.Validator,
 	)
 	h := sha256.New()
@@ -43,7 +43,7 @@ func (b *Block) CalculateMerkleRoot() []byte {
 	for _, tx := range b.Transactions {
 		txHashes = append(txHashes, tx.Hash())
 	}
-	
+
 	return CalculateMerkleRoot(txHashes)
 }
 
@@ -58,10 +58,10 @@ func NewBlock(transactions []*Transaction, prevBlockHash []byte, validator strin
 		},
 		Transactions: transactions,
 	}
-	
+
 	block.Header.MerkleRoot = block.CalculateMerkleRoot()
 	block.Hash = block.CalculateHash()
-	
+
 	return block
 }
 

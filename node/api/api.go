@@ -30,7 +30,6 @@ func Handler(c *chain.Chain) http.Handler {
 	mux.HandleFunc("GET /v1/accounts/{addr}/pools", s.accountPools)
 	mux.HandleFunc("GET /v1/escrows/{id}", s.escrow)
 	mux.HandleFunc("GET /v1/accounts/{addr}/escrows", s.accountEscrows)
-	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok\n")) })
 	return cors(mux)
 }
 

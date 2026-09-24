@@ -9,6 +9,6 @@ import (
 func TestSmartContractFuzzing(t *testing.T) {
 	// Instead of a standard test, Go Fuzzing uses random inputs
 	// Example: go test -fuzz=FuzzVM
-	
+
 	t.Log("VM Fuzzing complete. Zero panics detected. Max memory boundary preserved.")
 }

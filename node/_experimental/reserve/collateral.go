@@ -35,7 +35,7 @@ func NewVault() *Vault {
 func (v *Vault) UpdateAsset(asset AssetType, amount, usdValue float64) {
 	v.mu.Lock()
 	defer v.mu.Unlock()
-	
+
 	v.assets[asset] = &AssetBalance{
 		Amount:   amount,
 		USDValue: usdValue,
@@ -46,7 +46,7 @@ func (v *Vault) UpdateAsset(asset AssetType, amount, usdValue float64) {
 func (v *Vault) TotalReserveValue() float64 {
 	v.mu.RLock()
 	defer v.mu.RUnlock()
-	
+
 	total := 0.0
 	for _, balance := range v.assets {
 		total += balance.USDValue

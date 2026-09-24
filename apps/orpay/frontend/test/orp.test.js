@@ -19,6 +19,8 @@ const vectors = {
     '8ca4d14556866aa578420a5db2deabd0c3392543e4ef00a9370f88488cc40da7'],
   pool: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 3, pool: { op: 'create', name: 'Ajo', members: [FROM, TO], contribution: 10_000_000n } },
     '36f569c0bb0fc3e642bcc2b5a0885c3282d5f35a4b188292c93a53c3df191e0c'],
+  poolsched: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 6, asset: 'NGN', pool: { op: 'create', name: 'Ajo', members: [FROM, TO], contribution: 10_000_000n, round_secs: 604800, deposit: 10_000_000n } },
+    'f115f625edf0067d576e3bb8336fcb077161ef8bd55341284b20a620edb507c2'],
   pooljoin: [{ chain_id: 'c1', from: TO, to: '', amount: 0n, fee: 1000n, nonce: 0, pool: { op: 'join', id: ID } },
     '82ebaedcce1ec1bbfc48bf170294f7a95c02913657098321586997bc922aedf7'],
   escrow: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 4, asset: 'NGN', escrow: {

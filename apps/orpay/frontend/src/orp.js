@@ -101,6 +101,12 @@ export function txSignBytes(tx) {
     e.u64(members.length)
     for (const m of members) e.str(m)
     e.u64(p.contribution ?? 0)
+    if (p.round_secs || p.deposit) {
+      // Schedule fields are appended only when used (older encodings unchanged).
+      e.parts.push(new Uint8Array([3]))
+      e.u64(p.round_secs ?? 0)
+      e.u64(p.deposit ?? 0)
+    }
   } else {
     e.parts.push(new Uint8Array([0]))
   }
@@ -178,6 +184,7 @@ export const node = {
     if (tx.pool) {
       body.pool = { ...tx.pool }
       if (body.pool.contribution != null) body.pool.contribution = Number(body.pool.contribution)
+      if (body.pool.deposit != null) body.pool.deposit = Number(body.pool.deposit)
       for (const k of Object.keys(body.pool)) if (body.pool[k] == null || body.pool[k] === '') delete body.pool[k]
       if (!body.to) delete body.to
     }
@@ -203,12 +210,16 @@ export async function escrowOp({ seed, op, id, seller, arbiter, milestones, ship
 
 // Sign and submit a savings-pool operation. For "create" the returned tx id
 // is also the new pool's id.
-export async function poolOp({ seed, op, id, name, members, contribution, asset = '' }) {
+export async function poolOp({ seed, op, id, name, members, contribution, roundSecs = 0, deposit = 0n, asset = '' }) {
   const from = await addressOf(seed)
   const [st, acc] = await Promise.all([node.status(), node.account(from)])
   const pool = { op }
   if (id) pool.id = id
-  if (op === 'create') Object.assign(pool, { name, members, contribution: BigInt(contribution) })
+  if (op === 'create') {
+    Object.assign(pool, { name, members, contribution: BigInt(contribution) })
+    if (roundSecs) pool.round_secs = roundSecs
+    if (deposit) pool.deposit = BigInt(deposit)
+  }
   const tx = await signTx(
     { chain_id: st.chain_id, from, to: '', amount: 0n, fee: feeFor(st, asset), nonce: acc.next_nonce, memo: '', pool, ...(asset ? { asset } : {}) },
     seed,

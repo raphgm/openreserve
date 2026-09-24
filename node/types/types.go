@@ -151,6 +151,9 @@ const (
 //	         if nothing was dispatched by the ship-by deadline
 //	claim    seller takes the rest if the buyer neither released nor
 //	         disputed within the review period after dispatch
+//
+// Returns are not supported: buyers accept the seller's policy (its hash
+// is in the create tx memo as "terms:<sha256>") before funding.
 const (
 	EscrowCreate   = "create"
 	EscrowDispatch = "dispatch"
@@ -197,6 +200,12 @@ type PoolOp struct {
 	Name         string    `json:"name,omitempty"`
 	Members      []Address `json:"members,omitempty"` // payout order
 	Contribution Amount    `json:"contribution,omitempty"`
+	// Optional schedule and default protection (create only):
+	// RoundSecs gives each round a due date; after it, the round's member
+	// can collect even if someone has not paid. Deposit is held from each
+	// member on joining to cover a missed payment, and returned at the end.
+	RoundSecs int64  `json:"round_secs,omitempty"`
+	Deposit   Amount `json:"deposit,omitempty"`
 }
 
 // HexBytes is a byte slice hex encoded in JSON.
@@ -256,6 +265,11 @@ func (tx *Tx) SignBytes() []byte {
 			e.str(string(m))
 		}
 		e.u64(p.Contribution)
+		if p.RoundSecs != 0 || p.Deposit != 0 { // appended only when used: older encodings unchanged
+			e.raw([]byte{3})
+			e.u64(uint64(p.RoundSecs))
+			e.u64(p.Deposit)
+		}
 	} else {
 		e.raw([]byte{0})
 	}
@@ -472,11 +486,20 @@ func (tx *Tx) checkPoolOp() error {
 		if p.Contribution > ^uint64(0)/uint64(len(p.Members)) {
 			return errors.New("contribution too large")
 		}
+		if p.RoundSecs != 0 && (p.RoundSecs < 3600 || p.RoundSecs > 366*24*3600) {
+			return errors.New("round length must be 1 hour to 1 year")
+		}
+		if p.Deposit > p.Contribution*Amount(len(p.Members)) {
+			return errors.New("deposit is larger than a whole pot")
+		}
+		if p.Deposit != 0 && p.RoundSecs == 0 {
+			return errors.New("a deposit needs a round schedule (round_secs)")
+		}
 	case PoolJoin, PoolContribute, PoolClaim:
 		if p.ID == (Hash{}) {
 			return errors.New("pool id required")
 		}
-		if p.Name != "" || len(p.Members) != 0 || p.Contribution != 0 {
+		if p.Name != "" || len(p.Members) != 0 || p.Contribution != 0 || p.RoundSecs != 0 || p.Deposit != 0 {
 			return fmt.Errorf("%s takes only a pool id", p.Op)
 		}
 	default:

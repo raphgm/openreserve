@@ -23,7 +23,7 @@ func sumBalances(c *Chain) types.Amount {
 	}
 	for _, p := range c.state.Pools {
 		if p.Asset == "" {
-			total += p.Balance
+			total += p.Balance + p.Held()
 		}
 	}
 	for _, x := range c.state.Escrows {
@@ -168,5 +168,116 @@ func TestPoolCreateValidation(t *testing.T) {
 	withAmount.Sign(f.alice.priv)
 	if _, err := c.Submit(withAmount); err == nil {
 		t.Error("pool op with amount accepted")
+	}
+}
+
+// Scheduled ajo: one member stops paying. The round's member still collects
+// after the due date, the defaulter's deposit covers them, and the default
+// is on record for everyone to see.
+func TestPoolDefaultCoveredByDeposit(t *testing.T) {
+	f := newFixture(t)
+	carol := newActor(t)
+	f.g.Allocations = []Allocation{
+		{Address: f.alice.addr, Amount: 100 * types.Unit},
+		{Address: f.bob.addr, Amount: 100 * types.Unit},
+		{Address: carol.addr, Amount: 100 * types.Unit},
+	}
+	c := f.open(t.TempDir())
+	nonce := map[types.Address]uint64{}
+	op := func(a actor, o *types.PoolOp) error {
+		_, err := c.Submit(f.poolTx(a, nonce[a.addr], o))
+		if err == nil {
+			nonce[a.addr]++
+			f.produce(c)
+		}
+		return err
+	}
+	must := func(a actor, o *types.PoolOp) {
+		t.Helper()
+		if err := op(a, o); err != nil {
+			t.Fatal(err)
+		}
+	}
+	week := int64(7 * 24 * 3600)
+	create := f.poolTx(f.alice, 0, &types.PoolOp{Op: types.PoolCreate, Name: "Market women ajo",
+		Members: []types.Address{f.alice.addr, f.bob.addr, carol.addr}, Contribution: 10 * types.Unit,
+		RoundSecs: week, Deposit: 10 * types.Unit})
+	if _, err := c.Submit(create); err != nil {
+		t.Fatal(err)
+	}
+	nonce[f.alice.addr]++
+	f.produce(c)
+	id := create.ID()
+	must(f.bob, &types.PoolOp{Op: types.PoolJoin, ID: id})
+	must(carol, &types.PoolOp{Op: types.PoolJoin, ID: id})
+	p := c.Pool(id)
+	if p.Status != ledger.PoolActive || p.Held() != 30*types.Unit || p.StartedAt == 0 {
+		t.Fatalf("after joins: %+v", p)
+	}
+
+	// Round 1 (alice receives): bob pays, carol does not.
+	must(f.alice, &types.PoolOp{Op: types.PoolContribute, ID: id})
+	must(f.bob, &types.PoolOp{Op: types.PoolContribute, ID: id})
+	if err := op(f.alice, &types.PoolOp{Op: types.PoolClaim, ID: id}); !errors.Is(err, ledger.ErrPool) {
+		t.Fatalf("claim before due date: %v", err)
+	}
+	f.now = p.DueAt(0) // the due date passes
+	before, _ := c.Account(f.alice.addr)
+	must(f.alice, &types.PoolOp{Op: types.PoolClaim, ID: id})
+	after, _ := c.Account(f.alice.addr)
+	p = c.Pool(id)
+	if after.Balance != before.Balance+30*types.Unit-minFee {
+		t.Errorf("alice got %d, want the full 30 ORP pot", after.Balance-before.Balance+minFee)
+	}
+	if p.Defaults[2] != 1 || p.Deposits[2] != 0 || p.PaidOut[0] != 30*types.Unit {
+		t.Fatalf("after covered default: defaults=%v deposits=%v paidout=%v", p.Defaults, p.Deposits, p.PaidOut)
+	}
+	if sumBalances(c) != c.Status().Supply {
+		t.Fatal("supply mismatch after default")
+	}
+
+	// Round 2 (bob receives): carol defaults again, with no deposit left:
+	// bob gets what was actually paid.
+	must(f.alice, &types.PoolOp{Op: types.PoolContribute, ID: id})
+	must(f.bob, &types.PoolOp{Op: types.PoolContribute, ID: id})
+	f.now = p.DueAt(1)
+	must(f.bob, &types.PoolOp{Op: types.PoolClaim, ID: id})
+	if p = c.Pool(id); p.PaidOut[1] != 20*types.Unit || p.Defaults[2] != 2 {
+		t.Fatalf("round 2: paidout=%v defaults=%v", p.PaidOut, p.Defaults)
+	}
+
+	// Round 3 (carol receives): everyone pays; pool ends and alice's and
+	// bob's unused deposits come back.
+	aliceBefore, _ := c.Account(f.alice.addr)
+	must(f.alice, &types.PoolOp{Op: types.PoolContribute, ID: id})
+	must(f.bob, &types.PoolOp{Op: types.PoolContribute, ID: id})
+	must(carol, &types.PoolOp{Op: types.PoolContribute, ID: id})
+	must(carol, &types.PoolOp{Op: types.PoolClaim, ID: id})
+	p = c.Pool(id)
+	aliceAfter, _ := c.Account(f.alice.addr)
+	if p.Status != ledger.PoolDone || p.Held() != 0 || p.Balance != 0 {
+		t.Fatalf("final pool %+v", p)
+	}
+	if aliceAfter.Balance != aliceBefore.Balance-10*types.Unit-minFee+10*types.Unit {
+		t.Errorf("alice's deposit not returned: %d -> %d", aliceBefore.Balance, aliceAfter.Balance)
+	}
+	if sumBalances(c) != c.Status().Supply {
+		t.Fatal("supply mismatch at end")
+	}
+}
+
+func TestPoolScheduleValidation(t *testing.T) {
+	f := newFixture(t)
+	c := f.open(t.TempDir())
+	members := []types.Address{f.alice.addr, f.bob.addr}
+	bad := map[string]*types.PoolOp{
+		"deposit without schedule": {Op: types.PoolCreate, Name: "x", Members: members, Contribution: types.Unit, Deposit: types.Unit},
+		"round too short":          {Op: types.PoolCreate, Name: "x", Members: members, Contribution: types.Unit, RoundSecs: 60},
+		"deposit over a pot":       {Op: types.PoolCreate, Name: "x", Members: members, Contribution: types.Unit, RoundSecs: 86400, Deposit: 3 * types.Unit},
+	}
+	for name, o := range bad {
+		if _, err := c.Submit(f.poolTx(f.alice, 0, o)); err == nil {
+			t.Errorf("%s: accepted", name)
+		}
 	}
 }

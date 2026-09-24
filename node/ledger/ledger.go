@@ -10,6 +10,7 @@ import (
 	"maps"
 	"slices"
 	"sort"
+	"time"
 
 	"github.com/openreserve/node/types"
 )
@@ -61,7 +62,29 @@ type Pool struct {
 	Round        int             `json:"round"`   // 0-based; Members[Round] receives this round
 	Paid         []bool          `json:"paid"`    // contributions received this round
 	Claimed      []bool          `json:"claimed"` // members who already received their pot
-	Balance      types.Amount    `json:"balance"`
+	Balance      types.Amount    `json:"balance"` // contributions collected this round
+	// Schedule and default protection (zero when the pool has none).
+	RoundSecs int64          `json:"round_secs,omitempty"`
+	Deposit   types.Amount   `json:"deposit,omitempty"`
+	StartedAt int64          `json:"started_at,omitempty"` // when every member had joined (unix ms)
+	Deposits  []types.Amount `json:"deposits,omitempty"`   // deposit still held per member
+	Defaults  []int          `json:"defaults,omitempty"`   // missed payments per member
+	PaidOut   []types.Amount `json:"paid_out,omitempty"`   // what each member received
+}
+
+// Scheduled reports whether rounds have due dates.
+func (p *Pool) Scheduled() bool { return p.RoundSecs > 0 }
+
+// DueAt is when round r's contributions are due (unix ms).
+func (p *Pool) DueAt(r int) int64 { return p.StartedAt + int64(r+1)*p.RoundSecs*1000 }
+
+// Held is the total of deposits still held.
+func (p *Pool) Held() types.Amount {
+	var t types.Amount
+	for _, d := range p.Deposits {
+		t += d
+	}
+	return t
 }
 
 // Pot is what the round's recipient receives.
@@ -75,6 +98,9 @@ func (p *Pool) clone() *Pool {
 	c.Joined = slices.Clone(p.Joined)
 	c.Paid = slices.Clone(p.Paid)
 	c.Claimed = slices.Clone(p.Claimed)
+	c.Deposits = slices.Clone(p.Deposits)
+	c.Defaults = slices.Clone(p.Defaults)
+	c.PaidOut = slices.Clone(p.PaidOut)
 	return &c
 }
 
@@ -266,6 +292,12 @@ func (s *State) Cost(tx *types.Tx) types.Amount {
 		if p := s.Pools[tx.Pool.ID]; p != nil {
 			return p.Contribution + tx.Fee
 		}
+	case tx.Pool != nil && tx.Pool.Op == types.PoolCreate:
+		return tx.Pool.Deposit + tx.Fee
+	case tx.Pool != nil && tx.Pool.Op == types.PoolJoin:
+		if p := s.Pools[tx.Pool.ID]; p != nil {
+			return p.Deposit + tx.Fee
+		}
 	}
 	return tx.Amount + tx.Fee
 }
@@ -302,7 +334,7 @@ func (s *State) apply(tx *types.Tx, commit bool) error {
 		// The claimer may have spent everything on contributions; let the
 		// fee come out of the pot they are receiving.
 		if p := s.Pools[tx.Pool.ID]; p != nil && p.Asset == tx.Asset {
-			available += p.Pot()
+			available += p.Balance
 		}
 	}
 	if available < cost {
@@ -386,8 +418,16 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 				ID: id, Name: op.Name, Asset: tx.Asset, Creator: tx.From, Members: slices.Clone(op.Members),
 				Contribution: op.Contribution, Joined: make([]bool, n), Status: PoolForming,
 				Paid: make([]bool, n), Claimed: make([]bool, n),
+				RoundSecs: op.RoundSecs, Deposit: op.Deposit,
 			}
-			p.Joined[p.index(tx.From)] = true
+			if p.Scheduled() {
+				p.Deposits, p.Defaults, p.PaidOut = make([]types.Amount, n), make([]int, n), make([]types.Amount, n)
+			}
+			i := p.index(tx.From)
+			p.Joined[i] = true
+			if p.Deposits != nil {
+				p.Deposits[i] = p.Deposit
+			}
 			s.Pools[id] = p
 		}, nil
 	}
@@ -411,8 +451,12 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 		}
 		return func() {
 			p.Joined[i] = true
+			if p.Deposits != nil {
+				p.Deposits[i] = p.Deposit
+			}
 			if !slices.Contains(p.Joined, false) {
 				p.Status = PoolActive
+				p.StartedAt = s.Now
 			}
 		}, nil
 
@@ -435,21 +479,47 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 		if i != p.Round {
 			return nil, fmt.Errorf("%w: it is %s's turn", ErrPool, p.Members[p.Round])
 		}
-		if slices.Contains(p.Paid, false) {
+		allPaid := !slices.Contains(p.Paid, false)
+		if !allPaid && !(p.Scheduled() && s.Now >= p.DueAt(p.Round)) {
+			if p.Scheduled() {
+				return nil, fmt.Errorf("%w: waiting for all contributions (due %s)", ErrPool, time.UnixMilli(p.DueAt(p.Round)).UTC().Format(time.RFC3339))
+			}
 			return nil, fmt.Errorf("%w: waiting for all contributions this round", ErrPool)
 		}
-		pot := p.Pot()
-		if b := s.Balance(tx.From, p.Asset); b+pot < b {
+		if b := s.Balance(tx.From, p.Asset); b+p.Pot() < b {
 			return nil, ErrOverflow
 		}
 		return func() {
+			// Past the due date: record each missed payment and cover it from
+			// the member's deposit when there is enough left.
+			for j, paid := range p.Paid {
+				if paid {
+					continue
+				}
+				p.Defaults[j]++
+				if p.Deposits[j] >= p.Contribution {
+					p.Deposits[j] -= p.Contribution
+					p.Balance += p.Contribution
+				}
+			}
+			pot := p.Balance
 			s.credit(tx.From, p.Asset, pot)
-			p.Balance -= pot
+			p.Balance = 0
+			if p.PaidOut != nil {
+				p.PaidOut[i] = pot
+			}
 			p.Claimed[i] = true
 			p.Round++
 			clear(p.Paid)
 			if p.Round == len(p.Members) {
 				p.Status = PoolDone
+				// Return whatever deposit each member still has.
+				for j, d := range p.Deposits {
+					if d > 0 {
+						s.credit(p.Members[j], p.Asset, d)
+						p.Deposits[j] = 0
+					}
+				}
 			}
 		}, nil
 	}
@@ -661,6 +731,17 @@ func (s *State) Root() types.Hash {
 		bools(p.Paid)
 		bools(p.Claimed)
 		u64(p.Balance)
+		if p.Scheduled() {
+			h.Write([]byte("schedule"))
+			u64(uint64(p.RoundSecs))
+			u64(p.Deposit)
+			u64(uint64(p.StartedAt))
+			for j := range p.Members {
+				u64(p.Deposits[j])
+				u64(uint64(p.Defaults[j]))
+				u64(p.PaidOut[j])
+			}
+		}
 	}
 
 	eids := slices.SortedFunc(maps.Keys(s.Escrows), func(a, b types.Hash) int { return slices.Compare(a[:], b[:]) })

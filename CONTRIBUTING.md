@@ -51,7 +51,7 @@ We gladly accept Pull Requests (PRs) for bug fixes, features, documentation upda
 ## Development Setup
 
 To build and run the OpenReserve network locally, you will need:
-- Go 1.21+
+- Go 1.26+
 - Node.js
 - Docker & Docker Compose
 

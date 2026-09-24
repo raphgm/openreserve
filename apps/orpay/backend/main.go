@@ -93,6 +93,9 @@ type server struct {
 	chats        *jsonstore.Store[map[string][]*EscrowMessage]
 	drafts       *jsonstore.Store[map[string]*PoolDraft]
 	pushes       *jsonstore.Store[map[types.Address]*pushState]
+	phones       *jsonstore.Store[*phoneData]
+	sms          SMSSender
+	devOTP       bool
 	vapid        vapidKeys
 	secret       []byte
 	stateDir     string
@@ -141,6 +144,25 @@ func newServer(cfg serverConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	phones, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-phones.json"), &phoneData{})
+	if err != nil {
+		return nil, err
+	}
+	phones.Update(func(d *phoneData) error {
+		if d.Phones == nil {
+			d.Phones = map[string]types.Address{}
+		}
+		if d.OTPs == nil {
+			d.OTPs = map[string]*otp{}
+		}
+		if d.Requests == nil {
+			d.Requests = map[string]*recoveryRequest{}
+		}
+		if d.Sent == nil {
+			d.Sent = map[string][]time.Time{}
+		}
+		return nil
+	})
 	vapid, err := loadVAPID(cfg.stateDir)
 	if err != nil {
 		return nil, err
@@ -153,7 +175,14 @@ func newServer(cfg serverConfig) (*server, error) {
 		terms: terms, chats: chats, secret: secret, drafts: drafts, pushes: pushes, vapid: vapid,
 		dir: dir, node: cfg.node, invoices: invoices, apps: apps, escrows: escrows, now: time.Now, stateDir: cfg.stateDir,
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
-		hookClient: webhookClient(cfg.privateHooks),
+		hookClient: webhookClient(cfg.privateHooks), phones: phones, sms: devSMS{}, devOTP: true,
+	}
+	if k := os.Getenv("TERMII_API_KEY"); k != "" {
+		sender := os.Getenv("TERMII_SENDER")
+		if sender == "" {
+			sender = "ORPay"
+		}
+		s.sms, s.devOTP = termiiSMS{apiKey: k, sender: sender, http: &http.Client{Timeout: 15 * time.Second}}, false
 	}
 	if c := strings.ToUpper(cfg.defaultCur); c != "" && c != "ORP" {
 		if !types.ValidAsset(c) {
@@ -245,6 +274,16 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/ajo-invites/{id}/leave", strict(30, 10, reqauth.Signed(s.leaveDraft)))
 	mux.Handle("POST /api/ajo-invites/{id}/order", strict(30, 10, reqauth.Signed(s.orderDraft)))
 	mux.Handle("POST /api/ajo-invites/{id}/started", strict(30, 10, reqauth.Signed(s.startedDraft)))
+
+	// Phone numbers and guardian recovery.
+	mux.Handle("POST /api/phone/link", strict(10, 3, reqauth.Signed(s.startLink)))
+	mux.Handle("POST /api/phone/link/verify", strict(20, 5, reqauth.Signed(s.verifyLink)))
+	mux.HandleFunc("GET /api/phone", reqauth.Signed(s.myPhone))
+	mux.Handle("GET /api/phones/{phone}", strict(30, 10, http.HandlerFunc(s.resolvePhone)))
+	mux.Handle("POST /api/recovery/start", strict(10, 3, http.HandlerFunc(s.startRecover)))
+	mux.Handle("POST /api/recovery/verify", strict(20, 5, http.HandlerFunc(s.verifyRecover)))
+	mux.HandleFunc("GET /api/recovery/requests", reqauth.Signed(s.guardianRequests))
+	mux.Handle("POST /api/recovery/migrate", strict(10, 3, reqauth.Signed(s.migrateIdentity)))
 
 	// Public invoice view for the hosted checkout page and receipts.
 	mux.HandleFunc("GET /api/invoices/{id}", s.getInvoice)

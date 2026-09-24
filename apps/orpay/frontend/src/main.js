@@ -807,7 +807,7 @@ function cobrand(partner) {
   const root = document.documentElement // the colour also tints partner marks inside the page
   if (!partner) {
     logo.classList.remove('cobrand')
-    logo.textContent = 'ORPay'
+    logo.innerHTML = '<span class="logo-pay">Pay</span>'
     root.style.removeProperty('--partner')
     return
   }

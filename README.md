@@ -216,63 +216,98 @@ Real-time monitoring for
 
 ---
 
+# Project Status
+
+What works today is the **ledger core**. Everything else in this README is design direction.
+
+| Area | Status |
+|------|--------|
+| Accounts, signed transfers (Ed25519), nonces, fee burn | Working |
+| Integer amounts (1 ORP = 1,000,000 micro-ORP) | Working |
+| Blocks with tx Merkle root and state root, persisted and fsynced | Working |
+| Crash recovery (full replay and re-verification on start) | Working |
+| Single authorized block producer | Working |
+| Replica nodes that re-execute and verify every block | Working |
+| REST API and `orctl` CLI wallet | Working |
+| Multi-validator BFT consensus, P2P gossip | Planned (see [ROADMAP](ROADMAP.md)) |
+| VM, bridge, governance, reserve minting | Prototypes in `node/_experimental`, not built |
+
+The chain currently trusts one block producer. That is fine for a devnet or a
+closed-loop pilot, but not for a public network.
+
+---
+
 # Getting Started
 
 ## Requirements
 
-- Go 1.21+
-- Docker
-- Docker Compose
-- Node.js
+- Go 1.26+
+- Docker (optional)
 
----
-
-## Start the Development Network
+## Run a local devnet
 
 ```bash
-docker compose up --build
+make devnet-init   # keys + genesis in ./devnet, alice gets 1,000,000 ORP
+make run           # block producer on :8080
 ```
 
-This starts
-
-- Bootnode
-- Validator 1
-- Validator 2
-- Block Explorer
-
----
-
-## Run ORPay
+Then, in another terminal:
 
 ```bash
-cd apps/orpay/backend
-go run main.go
+bin/orctl keygen -key bob.json
+bin/orctl send -key devnet/alice.json -to $(bin/orctl address -key bob.json) -amount 25.5 -memo "first payment" -wait
+bin/orctl balance -key bob.json
+bin/orctl history -key bob.json
+bin/orctl status
 ```
 
+Or run a producer plus a verifying replica in Docker:
+
 ```bash
-cd apps/orpay/frontend
-npm install
-npm run dev
+make devnet-init
+docker compose up --build   # producer on :8080, replica on :8081
 ```
+
+## Run the tests
+
+```bash
+make test
+```
+
+## API
+
+| Method | Path | Description |
+|--------|------|-------------|
+| GET | `/v1/status` | Height, tip, state root, supply, min fee |
+| GET | `/v1/genesis` | Genesis document |
+| GET | `/v1/accounts/{addr}` | Balance, nonce and next usable nonce |
+| GET | `/v1/accounts/{addr}/txs` | Committed transfers for an address |
+| GET | `/v1/blocks?from=N&limit=L&wait=S` | Block range; `wait` long-polls for new blocks |
+| GET | `/v1/blocks/{height}` | One block |
+| GET | `/v1/txs/{id}` | Transaction and status (`pending` or `committed`) |
+| POST | `/v1/txs` | Submit a signed transaction |
+
+Amounts in the API are integers in micro-ORP. A transaction is signed over a
+length-prefixed binary encoding (`types.Tx.SignBytes`); its ID is the SHA-256
+of those bytes.
 
 ---
 
 # Repository Structure
 
 ```
-openreserve/
-
 node/
-wallet/
-apps/
-sdk/
-contracts/
-explorer/
-governance/
-docs/
-examples/
-scripts/
-tests/
+  types/          addresses, amounts, transactions, blocks, signing
+  ledger/         account state and transfer rules
+  chain/          genesis, block log, mempool, block production and verification
+  api/            HTTP API
+  keys/           key files
+  cmd/openreserved  node binary
+  cmd/orctl         CLI wallet
+  _experimental/  earlier prototypes (not compiled)
+wallet/           wallet prototypes
+apps/             ORPay, explorer and analytics prototypes
+docs/             whitepaper and design documents
 ```
 
 ---

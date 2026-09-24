@@ -7,7 +7,8 @@ OpenReserve is being built in distinct, deliberate phases. This roadmap outlines
 The goal of Phase 1 is to establish the core data structures, basic networking, and wallet tooling.
 
 * **Whitepaper & Protocol Specification**: Defining the economic and technical foundations.
-* **Core Ledger**: Implementing accounts, state transitions, and the base asset (ORP).
+* **Core Ledger** (done): Accounts, signed transfers, integer amounts, fee burn, persisted blocks with state roots, verifying replicas, REST API and `orctl` CLI.
+* **Next up**: Wire ORPay and the explorer to the node API; a JavaScript SDK for signing transactions in the browser.
 * **Wallet SDK**: Releasing the initial BIP39-compatible key management tool.
 * **P2P Networking**: Bootstrapping peer discovery and gossip protocols.
 

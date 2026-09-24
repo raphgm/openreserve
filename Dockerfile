@@ -1,30 +1,15 @@
-# Stage 1: Build the Node
-FROM golang:1.21-alpine AS builder
+FROM golang:1.26-alpine AS builder
+WORKDIR /src
+COPY node/ ./
+RUN CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/openreserved ./cmd/openreserved \
+ && CGO_ENABLED=0 go build -trimpath -ldflags="-s -w" -o /out/orctl ./cmd/orctl
 
-WORKDIR /app
-
-# Copy the entire workspace (assumes docker build context is the openreserve root)
-COPY . .
-
-# Build the core node binary
-WORKDIR /app/node
-RUN go mod download
-RUN CGO_ENABLED=0 GOOS=linux go build -o /openreserve-node main.go
-
-# Stage 2: Create a minimal production image
-FROM alpine:latest
-
-# Install basic networking tools for debugging inside the container
-RUN apk add --no-cache bash curl
-
-WORKDIR /root/
-
-# Copy the compiled binary from the builder stage
-COPY --from=builder /openreserve-node .
-
-# Expose P2P port (3000) and REST API port (8080)
-EXPOSE 3000
+FROM alpine:3.20
+RUN adduser -D -u 10001 orp && apk add --no-cache ca-certificates wget && mkdir /data && chown orp /data
+VOLUME /data
+COPY --from=builder /out/ /usr/local/bin/
+USER orp
+WORKDIR /home/orp
 EXPOSE 8080
-
-# Run the node
-CMD ["./openreserve-node"]
+HEALTHCHECK --interval=10s --timeout=3s CMD wget -qO- http://localhost:8080/healthz || exit 1
+ENTRYPOINT ["openreserved"]

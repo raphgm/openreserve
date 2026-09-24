@@ -81,17 +81,18 @@ func ParseHash(s string) (Hash, error) {
 // the asset's issuer. Nonce must equal the sender's current nonce, which
 // prevents replay and orders a sender's txs.
 type Tx struct {
-	ChainID string   `json:"chain_id"`
-	From    Address  `json:"from"`
-	To      Address  `json:"to,omitempty"`
-	Amount  Amount   `json:"amount"`
-	Fee     Amount   `json:"fee"`
-	Nonce   uint64   `json:"nonce"`
-	Memo    string   `json:"memo,omitempty"`
-	Kind    string   `json:"kind,omitempty"`  // "", KindMint or KindBurn
-	Asset   string   `json:"asset,omitempty"` // "" = ORP
-	Pool    *PoolOp  `json:"pool,omitempty"`
-	Sig     HexBytes `json:"sig"`
+	ChainID string    `json:"chain_id"`
+	From    Address   `json:"from"`
+	To      Address   `json:"to,omitempty"`
+	Amount  Amount    `json:"amount"`
+	Fee     Amount    `json:"fee"`
+	Nonce   uint64    `json:"nonce"`
+	Memo    string    `json:"memo,omitempty"`
+	Kind    string    `json:"kind,omitempty"`  // "", KindMint or KindBurn
+	Asset   string    `json:"asset,omitempty"` // "" = ORP
+	Pool    *PoolOp   `json:"pool,omitempty"`
+	Escrow  *EscrowOp `json:"escrow,omitempty"`
+	Sig     HexBytes  `json:"sig"`
 }
 
 // Tx kinds for issued assets. A mint creates units of an asset and may only
@@ -128,6 +129,55 @@ const (
 	MaxPoolMembers = 50
 	MaxPoolName    = 64
 )
+
+// Escrow operations. The buyer locks funds in an escrow that no key can
+// spend. Funds move only by these rules:
+//
+//	create   buyer funds the escrow, split into milestones
+//	dispatch seller records shipment (tracking in the memo)
+//	release  buyer releases the next milestone to the seller
+//	dispute  buyer or seller freezes the escrow for the arbiter
+//	resolve  arbiter splits the remaining funds (disputes only)
+//	refund   seller refunds the buyer at any time, or the buyer reclaims
+//	         if nothing was dispatched by the ship-by deadline
+//	claim    seller takes the rest if the buyer neither released nor
+//	         disputed within the review period after dispatch
+const (
+	EscrowCreate   = "create"
+	EscrowDispatch = "dispatch"
+	EscrowRelease  = "release"
+	EscrowDispute  = "dispute"
+	EscrowResolve  = "resolve"
+	EscrowRefund   = "refund"
+	EscrowClaim    = "claim"
+
+	MaxMilestones = 10
+	MaxEscrowRef  = 64
+)
+
+// EscrowOp is the escrow-specific part of a Tx.
+type EscrowOp struct {
+	Op string `json:"op"`
+	// ID names the escrow for every op but create. An escrow's ID is the ID
+	// of the tx that created it.
+	ID         Hash     `json:"id,omitzero"`
+	Seller     Address  `json:"seller,omitempty"`
+	Arbiter    Address  `json:"arbiter,omitempty"`
+	Milestones []Amount `json:"milestones,omitempty"` // amounts released in order
+	ShipBy     int64    `json:"ship_by,omitempty"`    // unix ms; buyer may reclaim after this if not dispatched
+	ReviewSecs int64    `json:"review_secs,omitempty"`
+	Ref        string   `json:"ref,omitempty"`       // merchant reference, e.g. "PN-8291-X"
+	ToSeller   Amount   `json:"to_seller,omitempty"` // resolve: seller's share of what remains
+}
+
+// Total is the escrowed amount.
+func (e *EscrowOp) Total() Amount {
+	var t Amount
+	for _, m := range e.Milestones {
+		t += m
+	}
+	return t
+}
 
 // PoolOp is the pool-specific part of a Tx.
 type PoolOp struct {
@@ -169,7 +219,7 @@ func (e *encoder) raw(b []byte) { e.buf = append(e.buf, b...) }
 // Plain ORP transfers keep the v1 encoding; everything else uses v2.
 func (tx *Tx) SignBytes() []byte {
 	e := &encoder{}
-	v2 := tx.Pool != nil || tx.Kind != "" || tx.Asset != ""
+	v2 := tx.Pool != nil || tx.Kind != "" || tx.Asset != "" || tx.Escrow != nil
 	if v2 {
 		e.str("openreserve/tx/v2")
 	} else {
@@ -200,6 +250,21 @@ func (tx *Tx) SignBytes() []byte {
 	} else {
 		e.raw([]byte{0})
 	}
+	if x := tx.Escrow; x != nil { // appended only when present: older v2 encodings are unchanged
+		e.raw([]byte{2})
+		e.str(x.Op)
+		e.raw(x.ID[:])
+		e.str(string(x.Seller))
+		e.str(string(x.Arbiter))
+		e.u64(uint64(len(x.Milestones)))
+		for _, m := range x.Milestones {
+			e.u64(m)
+		}
+		e.u64(uint64(x.ShipBy))
+		e.u64(uint64(x.ReviewSecs))
+		e.str(x.Ref)
+		e.u64(x.ToSeller)
+	}
 	return e.buf
 }
 
@@ -228,6 +293,11 @@ func (tx *Tx) CheckStateless(chainID string) error {
 	}
 	var err error
 	switch {
+	case tx.Escrow != nil:
+		if tx.Kind != "" || tx.Pool != nil {
+			return errors.New("escrow operations cannot carry a kind or pool op")
+		}
+		err = tx.checkEscrowOp()
 	case tx.Pool != nil:
 		if tx.Kind != "" {
 			return errors.New("pool operations cannot have a kind")
@@ -296,6 +366,64 @@ func (tx *Tx) checkBurn() error {
 	}
 	if tx.Amount+tx.Fee < tx.Amount {
 		return errors.New("amount + fee overflows")
+	}
+	return nil
+}
+
+func (tx *Tx) checkEscrowOp() error {
+	x := tx.Escrow
+	if tx.To != "" || tx.Amount != 0 {
+		return errors.New("escrow operations must not set to or amount")
+	}
+	if x.Op == EscrowCreate {
+		switch {
+		case x.ID != (Hash{}):
+			return errors.New("create must not set id")
+		case x.Seller.Validate() != nil:
+			return errors.New("seller must be a valid address")
+		case x.Arbiter.Validate() != nil:
+			return errors.New("arbiter must be a valid address")
+		case x.Seller == tx.From:
+			return errors.New("buyer and seller must differ")
+		case x.Arbiter == tx.From || x.Arbiter == x.Seller:
+			return errors.New("the arbiter must be independent of buyer and seller")
+		case len(x.Milestones) == 0 || len(x.Milestones) > MaxMilestones:
+			return fmt.Errorf("an escrow needs 1-%d milestones", MaxMilestones)
+		case x.ShipBy <= 0:
+			return errors.New("ship_by deadline required")
+		case x.ReviewSecs < 3600 || x.ReviewSecs > 90*24*3600:
+			return errors.New("review period must be 1 hour to 90 days")
+		case len(x.Ref) > MaxEscrowRef:
+			return fmt.Errorf("ref longer than %d bytes", MaxEscrowRef)
+		case x.ToSeller != 0:
+			return errors.New("create must not set to_seller")
+		}
+		var total Amount
+		for _, m := range x.Milestones {
+			if m == 0 {
+				return errors.New("milestone amounts must be positive")
+			}
+			if total+m < total {
+				return errors.New("milestones overflow")
+			}
+			total += m
+		}
+		return nil
+	}
+	if x.ID == (Hash{}) {
+		return errors.New("escrow id required")
+	}
+	if x.Seller != "" || x.Arbiter != "" || len(x.Milestones) != 0 || x.ShipBy != 0 || x.ReviewSecs != 0 || x.Ref != "" {
+		return fmt.Errorf("%s takes only an escrow id", x.Op)
+	}
+	switch x.Op {
+	case EscrowDispatch, EscrowRelease, EscrowDispute, EscrowRefund, EscrowClaim:
+		if x.ToSeller != 0 {
+			return errors.New("only resolve sets to_seller")
+		}
+	case EscrowResolve:
+	default:
+		return fmt.Errorf("unknown escrow op %q", x.Op)
 	}
 	return nil
 }

@@ -28,6 +28,8 @@ func Handler(c *chain.Chain) http.Handler {
 	mux.HandleFunc("POST /v1/txs", s.submit)
 	mux.HandleFunc("GET /v1/pools/{id}", s.pool)
 	mux.HandleFunc("GET /v1/accounts/{addr}/pools", s.accountPools)
+	mux.HandleFunc("GET /v1/escrows/{id}", s.escrow)
+	mux.HandleFunc("GET /v1/accounts/{addr}/escrows", s.accountEscrows)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) { w.Write([]byte("ok\n")) })
 	return cors(mux)
 }
@@ -169,6 +171,30 @@ func (s *server) accountPools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.c.PoolsOf(addr))
+}
+
+// escrow returns an escrow and its full on-chain timeline.
+func (s *server) escrow(w http.ResponseWriter, r *http.Request) {
+	id, err := types.ParseHash(r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	e := s.c.Escrow(id)
+	if e == nil {
+		writeErr(w, http.StatusNotFound, errors.New("escrow not found"))
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"escrow": e, "history": s.c.EscrowHistory(id)})
+}
+
+func (s *server) accountEscrows(w http.ResponseWriter, r *http.Request) {
+	addr := types.Address(r.PathValue("addr"))
+	if err := addr.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.c.EscrowsOf(addr))
 }
 
 func assetsOrEmpty(m map[string]types.Amount) map[string]types.Amount {

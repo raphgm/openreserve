@@ -53,6 +53,7 @@ func (f *fixture) open(dir string) *Chain {
 		f.t.Fatal(err)
 	}
 	f.t.Cleanup(func() { c.Close() })
+	c.Clock = func() int64 { return f.now }
 	return c
 }
 

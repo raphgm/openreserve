@@ -42,16 +42,19 @@ type TxLocation struct {
 
 // Chain is the node's view of the ledger. All methods are safe for concurrent use.
 type Chain struct {
-	mu      sync.RWMutex
-	genesis *Genesis
-	state   *ledger.State
-	blocks  []*types.Block // blocks[i] has height i+1
-	txIndex map[types.Hash]TxLocation
-	byAddr  map[types.Address][]TxLocation // txs touching each address, oldest first
-	byPool  map[types.Hash][]TxLocation    // txs for each pool, oldest first
-	mempool map[types.Hash]pendingTx
-	log     *blockLog
-	notify  chan struct{} // closed and replaced whenever a block is committed
+	mu       sync.RWMutex
+	genesis  *Genesis
+	state    *ledger.State
+	blocks   []*types.Block // blocks[i] has height i+1
+	txIndex  map[types.Hash]TxLocation
+	byAddr   map[types.Address][]TxLocation // txs touching each address, oldest first
+	byPool   map[types.Hash][]TxLocation    // txs for each pool, oldest first
+	byEscrow map[types.Hash][]TxLocation    // txs for each escrow, oldest first
+	mempool  map[types.Hash]pendingTx
+	log      *blockLog
+	notify   chan struct{} // closed and replaced whenever a block is committed
+	// Clock returns the current time in unix ms; tests replace it.
+	Clock func() int64
 }
 
 // Open loads the chain from dataDir, replaying and re-verifying every block.
@@ -65,13 +68,15 @@ func Open(dataDir string, g *Genesis) (*Chain, error) {
 		return nil, err
 	}
 	c := &Chain{
-		genesis: g,
-		state:   st,
-		txIndex: map[types.Hash]TxLocation{},
-		byAddr:  map[types.Address][]TxLocation{},
-		byPool:  map[types.Hash][]TxLocation{},
-		mempool: map[types.Hash]pendingTx{},
-		notify:  make(chan struct{}),
+		genesis:  g,
+		state:    st,
+		txIndex:  map[types.Hash]TxLocation{},
+		byAddr:   map[types.Address][]TxLocation{},
+		byPool:   map[types.Hash][]TxLocation{},
+		byEscrow: map[types.Hash][]TxLocation{},
+		mempool:  map[types.Hash]pendingTx{},
+		notify:   make(chan struct{}),
+		Clock:    func() int64 { return time.Now().UnixMilli() },
 	}
 	for _, b := range stored {
 		next, err := c.verify(b)
@@ -112,6 +117,7 @@ func (c *Chain) Submit(tx *types.Tx) (types.Hash, error) {
 	if tx.Nonce >= acc.Nonce+MaxNonceAhead {
 		return id, fmt.Errorf("%w: account nonce is %d", ledger.ErrNonceTooHigh, acc.Nonce)
 	}
+	c.state.Now = max(c.Clock(), c.tipLocked().Time+1)
 	if err := c.state.Check(tx); err != nil && !errors.Is(err, ledger.ErrNonceTooHigh) {
 		return id, err
 	}
@@ -161,7 +167,12 @@ func (c *Chain) Produce(key ed25519.PrivateKey, nowMs int64) (*types.Block, erro
 		return pending[i].Nonce < pending[j].Nonce
 	})
 
+	tip := c.tipLocked()
+	if nowMs <= tip.Time {
+		nowMs = tip.Time + 1
+	}
 	next := c.state.Clone()
+	next.Now = nowMs
 	var txs []*types.Tx
 	for _, tx := range pending {
 		if len(txs) == MaxBlockTxs {
@@ -181,10 +192,6 @@ func (c *Chain) Produce(key ed25519.PrivateKey, nowMs int64) (*types.Block, erro
 		return nil, nil
 	}
 
-	tip := c.tipLocked()
-	if nowMs <= tip.Time {
-		nowMs = tip.Time + 1
-	}
 	b := &types.Block{
 		Header: types.Header{
 			ChainID:   c.genesis.ChainID,
@@ -261,6 +268,7 @@ func (c *Chain) verify(b *types.Block) (*ledger.State, error) {
 		return nil, err
 	}
 	next := c.state.Clone()
+	next.Now = h.Time
 	for i, tx := range b.Txs {
 		if err := tx.CheckStateless(c.genesis.ChainID); err != nil {
 			return nil, fmt.Errorf("tx %d: %w", i, err)
@@ -285,6 +293,15 @@ func (c *Chain) commit(b *types.Block, next *ledger.State) {
 		c.byAddr[tx.From] = append(c.byAddr[tx.From], loc)
 		if tx.To != "" {
 			c.byAddr[tx.To] = append(c.byAddr[tx.To], loc)
+		}
+		if x := tx.Escrow; x != nil {
+			eid := x.ID
+			if x.Op == types.EscrowCreate {
+				eid = id
+				c.byAddr[x.Seller] = append(c.byAddr[x.Seller], loc)
+				c.byAddr[x.Arbiter] = append(c.byAddr[x.Arbiter], loc)
+			}
+			c.byEscrow[eid] = append(c.byEscrow[eid], loc)
 		}
 		if tx.Pool != nil {
 			pid := tx.Pool.ID
@@ -477,5 +494,39 @@ func (c *Chain) assetStatus() []AssetStatus {
 	for _, sym := range slices.Sorted(maps.Keys(c.state.AssetDefs)) {
 		out = append(out, AssetStatus{AssetDef: c.state.AssetDefs[sym], Supply: c.state.AssetSupply[sym]})
 	}
+	return out
+}
+
+// Escrow returns an escrow's state, or nil.
+func (c *Chain) Escrow(id types.Hash) *ledger.Escrow {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.state.Escrow(id)
+}
+
+// EscrowHistory returns every committed tx for an escrow, oldest first.
+func (c *Chain) EscrowHistory(id types.Hash) []HistoryEntry {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := []HistoryEntry{}
+	for _, loc := range c.byEscrow[id] {
+		b := c.blocks[loc.Height-1]
+		tx := b.Txs[loc.Index]
+		out = append(out, HistoryEntry{Tx: tx, ID: tx.ID(), Height: b.Header.Height, Time: b.Header.Time})
+	}
+	return out
+}
+
+// EscrowsOf returns escrows where a is buyer, seller or arbiter, newest first.
+func (c *Chain) EscrowsOf(a types.Address) []*ledger.Escrow {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	out := []*ledger.Escrow{}
+	for _, e := range c.state.Escrows {
+		if e.Buyer == a || e.Seller == a || e.Arbiter == a {
+			out = append(out, e.Clone())
+		}
+	}
+	slices.SortFunc(out, func(x, y *ledger.Escrow) int { return int(y.CreatedAt - x.CreatedAt) })
 	return out
 }

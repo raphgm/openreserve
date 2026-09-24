@@ -78,6 +78,52 @@ func (p *Pool) clone() *Pool {
 	return &c
 }
 
+// Escrow status values.
+const (
+	EscrowFunded     = "funded"
+	EscrowDispatched = "dispatched"
+	EscrowDisputed   = "disputed"
+	EscrowCompleted  = "completed" // every milestone went to the seller
+	EscrowRefunded   = "refunded"  // the buyer got the remainder back
+	EscrowResolved   = "resolved"  // the arbiter split the remainder
+)
+
+// Escrow is funds locked between a buyer and a seller. Like a pool, its
+// balance is held by the ledger and moves only by the escrow rules.
+type Escrow struct {
+	ID           types.Hash     `json:"id"`
+	Ref          string         `json:"ref,omitempty"`
+	Asset        string         `json:"asset,omitempty"`
+	Buyer        types.Address  `json:"buyer"`
+	Seller       types.Address  `json:"seller"`
+	Arbiter      types.Address  `json:"arbiter"`
+	Milestones   []types.Amount `json:"milestones"`
+	Released     int            `json:"released"` // milestones paid to the seller, in order
+	Balance      types.Amount   `json:"balance"`
+	Status       string         `json:"status"`
+	CreatedAt    int64          `json:"created_at"` // block time, unix ms
+	ShipBy       int64          `json:"ship_by"`
+	ReviewSecs   int64          `json:"review_secs"`
+	DispatchedAt int64          `json:"dispatched_at,omitempty"`
+	Tracking     string         `json:"tracking,omitempty"`
+	PaidSeller   types.Amount   `json:"paid_seller"`
+	PaidBuyer    types.Amount   `json:"paid_buyer"`
+}
+
+// Open reports whether funds are still locked.
+func (e *Escrow) Open() bool {
+	return e.Status == EscrowFunded || e.Status == EscrowDispatched || e.Status == EscrowDisputed
+}
+
+// Clone returns an independent copy.
+func (e *Escrow) Clone() *Escrow { return e.clone() }
+
+func (e *Escrow) clone() *Escrow {
+	c := *e
+	c.Milestones = slices.Clone(e.Milestones)
+	return &c
+}
+
 // State is the full ledger. It is not safe for concurrent use; the chain
 // package serializes access.
 type State struct {
@@ -88,6 +134,10 @@ type State struct {
 	MinFee      types.Amount
 	AssetDefs   map[string]AssetDef     // fixed at genesis
 	AssetSupply map[string]types.Amount // units of each issued asset in existence
+	Escrows     map[types.Hash]*Escrow
+	// Now is the time rules are evaluated at (unix ms): the block's time
+	// while executing a block, the tip's time when checking the mempool.
+	Now int64
 }
 
 // Errors returned by Apply. ErrNonceTooHigh lets the mempool keep a tx that
@@ -100,6 +150,7 @@ var (
 	ErrOverflow     = errors.New("balance overflow")
 	ErrPool         = errors.New("pool rule")
 	ErrAsset        = errors.New("asset rule")
+	ErrEscrow       = errors.New("escrow rule")
 )
 
 // New creates an empty state.
@@ -107,7 +158,16 @@ func New(minFee types.Amount) *State {
 	return &State{
 		Accounts: map[types.Address]Account{}, Pools: map[types.Hash]*Pool{}, MinFee: minFee,
 		AssetDefs: map[string]AssetDef{}, AssetSupply: map[string]types.Amount{},
+		Escrows: map[types.Hash]*Escrow{},
 	}
+}
+
+// Escrow returns a copy of an escrow, or nil.
+func (s *State) Escrow(id types.Hash) *Escrow {
+	if e, ok := s.Escrows[id]; ok {
+		return e.clone()
+	}
+	return nil
 }
 
 // Balance returns an address's balance of an asset ("" = ORP).
@@ -181,6 +241,8 @@ func (s *State) Cost(tx *types.Tx) types.Amount {
 	switch {
 	case tx.Kind == types.KindMint:
 		return 0
+	case tx.Escrow != nil && tx.Escrow.Op == types.EscrowCreate:
+		return tx.Escrow.Total() + tx.Fee
 	case tx.Pool != nil && tx.Pool.Op == types.PoolContribute:
 		if p := s.Pools[tx.Pool.ID]; p != nil {
 			return p.Contribution + tx.Fee
@@ -202,7 +264,10 @@ func (s *State) apply(tx *types.Tx, commit bool) error {
 			return fmt.Errorf("%w: unknown asset %s", ErrAsset, tx.Asset)
 		}
 	}
-	if tx.Kind != types.KindMint && tx.Fee < s.MinFeeFor(tx.Asset) {
+	// Escrow steps after create are free, so a seller with no balance can
+	// still record dispatch and an arbiter can still resolve.
+	feeFree := tx.Kind == types.KindMint || (tx.Escrow != nil && tx.Escrow.Op != types.EscrowCreate)
+	if !feeFree && tx.Fee < s.MinFeeFor(tx.Asset) {
 		return fmt.Errorf("%w: need %s %s", ErrFeeTooLow, types.FormatAmount(s.MinFeeFor(tx.Asset)), types.AssetName(tx.Asset))
 	}
 	from := s.Accounts[tx.From]
@@ -228,6 +293,8 @@ func (s *State) apply(tx *types.Tx, commit bool) error {
 	var effect func()
 	var err error
 	switch {
+	case tx.Escrow != nil:
+		effect, err = s.escrowOp(tx)
 	case tx.Pool != nil:
 		effect, err = s.poolOp(tx)
 	case tx.Kind == types.KindMint:
@@ -370,6 +437,133 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 	return nil, fmt.Errorf("unknown pool op %q", op.Op)
 }
 
+func (s *State) escrowOp(tx *types.Tx) (func(), error) {
+	op := tx.Escrow
+	if op.Op == types.EscrowCreate {
+		id := tx.ID()
+		if _, exists := s.Escrows[id]; exists {
+			return nil, fmt.Errorf("%w: escrow already exists", ErrEscrow)
+		}
+		if op.ShipBy <= s.Now {
+			return nil, fmt.Errorf("%w: ship-by deadline is in the past", ErrEscrow)
+		}
+		return func() {
+			s.Escrows[id] = &Escrow{
+				ID: id, Ref: op.Ref, Asset: tx.Asset, Buyer: tx.From, Seller: op.Seller, Arbiter: op.Arbiter,
+				Milestones: slices.Clone(op.Milestones), Balance: op.Total(), Status: EscrowFunded,
+				CreatedAt: s.Now, ShipBy: op.ShipBy, ReviewSecs: op.ReviewSecs,
+			}
+		}, nil
+	}
+
+	e := s.Escrows[op.ID]
+	if e == nil {
+		return nil, fmt.Errorf("%w: no escrow %s", ErrEscrow, op.ID)
+	}
+	if tx.Asset != e.Asset {
+		return nil, fmt.Errorf("%w: this escrow uses %s", ErrEscrow, types.AssetName(e.Asset))
+	}
+	if !e.Open() {
+		return nil, fmt.Errorf("%w: escrow is %s", ErrEscrow, e.Status)
+	}
+	who := tx.From
+	fail := func(msg string) (func(), error) { return nil, fmt.Errorf("%w: %s", ErrEscrow, msg) }
+	pay := func(to types.Address, amt types.Amount) {
+		if amt == 0 {
+			return
+		}
+		s.credit(to, e.Asset, amt)
+		e.Balance -= amt
+		if to == e.Seller {
+			e.PaidSeller += amt
+		} else {
+			e.PaidBuyer += amt
+		}
+	}
+	remaining := e.Balance
+
+	switch op.Op {
+	case types.EscrowDispatch:
+		if who != e.Seller {
+			return fail("only the seller can mark dispatch")
+		}
+		if e.Status != EscrowFunded {
+			return fail("already " + e.Status)
+		}
+		return func() {
+			e.Status, e.DispatchedAt, e.Tracking = EscrowDispatched, s.Now, tx.Memo
+		}, nil
+
+	case types.EscrowRelease:
+		if who != e.Buyer {
+			return fail("only the buyer can release funds")
+		}
+		if e.Status == EscrowDisputed {
+			return fail("escrow is under dispute; the arbiter decides")
+		}
+		return func() {
+			pay(e.Seller, e.Milestones[e.Released])
+			e.Released++
+			if e.Released == len(e.Milestones) {
+				e.Status = EscrowCompleted
+			}
+		}, nil
+
+	case types.EscrowDispute:
+		if who != e.Buyer && who != e.Seller {
+			return fail("only the buyer or seller can open a dispute")
+		}
+		if e.Status == EscrowDisputed {
+			return fail("already disputed")
+		}
+		return func() { e.Status = EscrowDisputed }, nil
+
+	case types.EscrowResolve:
+		if who != e.Arbiter {
+			return fail("only the arbiter can resolve")
+		}
+		if e.Status != EscrowDisputed {
+			return fail("the arbiter can only act on a disputed escrow")
+		}
+		if op.ToSeller > remaining {
+			return fail("to_seller exceeds the escrow balance")
+		}
+		return func() {
+			pay(e.Seller, op.ToSeller)
+			pay(e.Buyer, remaining-op.ToSeller)
+			e.Status = EscrowResolved
+		}, nil
+
+	case types.EscrowRefund:
+		switch {
+		case who == e.Seller: // a seller may always give the money back
+		case who == e.Buyer && e.Status == EscrowFunded && s.Now > e.ShipBy:
+		case who == e.Buyer:
+			return fail("the buyer can reclaim only if nothing was dispatched by the ship-by deadline")
+		default:
+			return fail("only the seller, or the buyer after the deadline, can refund")
+		}
+		return func() {
+			pay(e.Buyer, remaining)
+			e.Status = EscrowRefunded
+		}, nil
+
+	case types.EscrowClaim:
+		if who != e.Seller {
+			return fail("only the seller can claim")
+		}
+		if e.Status != EscrowDispatched || s.Now < e.DispatchedAt+e.ReviewSecs*1000 {
+			return fail("the buyer's review period has not ended")
+		}
+		return func() {
+			pay(e.Seller, remaining)
+			e.Released = len(e.Milestones)
+			e.Status = EscrowCompleted
+		}, nil
+	}
+	return nil, fmt.Errorf("unknown escrow op %q", op.Op)
+}
+
 // Clone returns an independent copy, used to build and verify blocks
 // without touching the committed state.
 func (s *State) Clone() *State {
@@ -379,6 +573,10 @@ func (s *State) Clone() *State {
 		c.Accounts[k] = v.clone()
 	}
 	c.AssetSupply = maps.Clone(s.AssetSupply)
+	c.Escrows = make(map[types.Hash]*Escrow, len(s.Escrows))
+	for k, v := range s.Escrows {
+		c.Escrows[k] = v.clone()
+	}
 	c.Pools = make(map[types.Hash]*Pool, len(s.Pools))
 	for k, v := range s.Pools {
 		c.Pools[k] = v.clone()
@@ -444,6 +642,32 @@ func (s *State) Root() types.Hash {
 		bools(p.Paid)
 		bools(p.Claimed)
 		u64(p.Balance)
+	}
+
+	eids := slices.SortedFunc(maps.Keys(s.Escrows), func(a, b types.Hash) int { return slices.Compare(a[:], b[:]) })
+	for _, id := range eids {
+		e := s.Escrows[id]
+		h.Write([]byte("escrow"))
+		h.Write(id[:])
+		str(e.Ref)
+		str(e.Asset)
+		str(string(e.Buyer))
+		str(string(e.Seller))
+		str(string(e.Arbiter))
+		u64(uint64(len(e.Milestones)))
+		for _, m := range e.Milestones {
+			u64(m)
+		}
+		u64(uint64(e.Released))
+		u64(e.Balance)
+		str(e.Status)
+		u64(uint64(e.CreatedAt))
+		u64(uint64(e.ShipBy))
+		u64(uint64(e.ReviewSecs))
+		u64(uint64(e.DispatchedAt))
+		str(e.Tracking)
+		u64(e.PaidSeller)
+		u64(e.PaidBuyer)
 	}
 
 	u64(s.Supply)

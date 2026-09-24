@@ -22,7 +22,14 @@ func sumBalances(c *Chain) types.Amount {
 		total += a.Balance
 	}
 	for _, p := range c.state.Pools {
-		total += p.Balance
+		if p.Asset == "" {
+			total += p.Balance
+		}
+	}
+	for _, x := range c.state.Escrows {
+		if x.Asset == "" {
+			total += x.Balance
+		}
 	}
 	return total
 }

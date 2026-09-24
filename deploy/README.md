@@ -24,6 +24,18 @@ bin/orctl genesis -chain-id openreserve-pilot-1 \
   -alloc $(bin/orctl address -key treasury.json)=1000000 > genesis.json
 ```
 
+To issue naira, add the NGN asset with its issuer and transaction fee (₦20 here):
+
+```bash
+bin/orctl keygen -key issuer.json
+# add to the genesis command above:
+#   -asset "NGN:$(bin/orctl address -key issuer.json):20:2:Nigerian naira"
+```
+
+Naira fees go to the issuer (your platform revenue); ORP fees are burned.
+Fees are fixed in genesis: changing them later means a new genesis (or a
+governance upgrade, not built yet).
+
 Copy `genesis.json` to `deploy/genesis.json` on the server.
 
 ## 3. Configure secrets

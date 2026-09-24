@@ -114,7 +114,7 @@ func main() {
 	g := &chain.Genesis{
 		ChainID: *chainID, Time: time.Now().UnixMilli(), Consensus: chain.ConsensusCometBFT, MinFee: 1000,
 		Allocations: []chain.Allocation{{Address: keys.Address(alice), Amount: 1_000_000 * types.Unit}},
-		Assets:      []ledger.AssetDef{{Symbol: "NGN", Name: "Nigerian naira", Issuer: keys.Address(issuer), MinFee: 10_000, Decimals: 2}},
+		Assets:      []ledger.AssetDef{{Symbol: "NGN", Name: "Nigerian naira", Issuer: keys.Address(issuer), MinFee: 20 * types.Unit, Decimals: 2}},
 	}
 	must(g.Validate())
 	b, _ := json.MarshalIndent(g, "", "  ")

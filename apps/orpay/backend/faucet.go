@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/openreserve/node/jsonstore"
 	"github.com/openreserve/node/types"
 )
 
@@ -18,11 +19,11 @@ type faucet struct {
 	key      ed25519.PrivateKey
 	amount   types.Amount
 	cooldown time.Duration
-	last     *jsonStore[map[types.Address]time.Time]
+	last     *jsonstore.Store[map[types.Address]time.Time]
 }
 
 func newFaucet(key ed25519.PrivateKey, amount types.Amount, cooldown time.Duration, path string) (*faucet, error) {
-	last, err := openStore(path, map[types.Address]time.Time{})
+	last, err := jsonstore.Open(path, map[types.Address]time.Time{})
 	if err != nil {
 		return nil, err
 	}
@@ -50,18 +51,18 @@ func (s *server) drip(w http.ResponseWriter, r *http.Request) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	var last time.Time
-	f.last.read(func(m map[types.Address]time.Time) { last = m[req.Address] })
+	f.last.Read(func(m map[types.Address]time.Time) { last = m[req.Address] })
 	if wait := f.cooldown - s.now().Sub(last); wait > 0 {
 		writeErr(w, http.StatusTooManyRequests, fmt.Errorf("try again in %s", wait.Round(time.Minute)))
 		return
 	}
-	id, err := s.node.send(f.key, req.Address, f.amount, "ORPay faucet")
+	id, err := s.node.SignAndSubmit(f.key, &types.Tx{To: req.Address, Amount: f.amount, Memo: "ORPay faucet"})
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err)
 		return
 	}
 	now := s.now()
-	f.last.update(func(m map[types.Address]time.Time) error {
+	f.last.Update(func(m map[types.Address]time.Time) error {
 		m[req.Address] = now
 		// Forget entries past their cooldown so the file stays small.
 		for a, t := range m {

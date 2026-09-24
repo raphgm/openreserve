@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openreserve/node/reqauth"
 	"github.com/openreserve/node/types"
 )
 
@@ -116,7 +117,7 @@ func (s *server) requestApp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("description is too long"))
 		return
 	}
-	owner := caller(r)
+	owner := reqauth.Caller(r)
 	if req.Settlement == "" {
 		req.Settlement = owner
 	} else if err := req.Settlement.Validate(); err != nil {
@@ -128,7 +129,7 @@ func (s *server) requestApp(w http.ResponseWriter, r *http.Request) {
 		Description: req.Description, Owner: owner, Settlement: req.Settlement,
 		Status: AppPending, CreatedAt: s.now(),
 	}
-	err := s.apps.update(func(apps map[string]*App) error {
+	err := s.apps.Update(func(apps map[string]*App) error {
 		for _, a := range apps {
 			if strings.EqualFold(a.Name, app.Name) {
 				return fmt.Errorf("an app named %q already exists", a.Name)
@@ -146,10 +147,10 @@ func (s *server) requestApp(w http.ResponseWriter, r *http.Request) {
 
 // listApps returns the caller's apps, or every app for an admin.
 func (s *server) listApps(w http.ResponseWriter, r *http.Request) {
-	me := caller(r)
+	me := reqauth.Caller(r)
 	admin := s.isAdmin(me)
 	out := []App{}
-	s.apps.read(func(apps map[string]*App) {
+	s.apps.Read(func(apps map[string]*App) {
 		for _, a := range apps {
 			if admin || a.Owner == me {
 				c := a.forOwner()
@@ -166,7 +167,7 @@ func (s *server) listApps(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) publicApp(w http.ResponseWriter, r *http.Request) {
 	var info map[string]any
-	s.apps.read(func(apps map[string]*App) {
+	s.apps.Read(func(apps map[string]*App) {
 		if a, ok := apps[r.PathValue("id")]; ok {
 			info = a.public()
 		}
@@ -180,7 +181,7 @@ func (s *server) publicApp(w http.ResponseWriter, r *http.Request) {
 
 // reviewApp lets an admin approve, reject or suspend an app.
 func (s *server) reviewApp(w http.ResponseWriter, r *http.Request) {
-	if !s.isAdmin(caller(r)) {
+	if !s.isAdmin(reqauth.Caller(r)) {
 		writeErr(w, http.StatusForbidden, errors.New("only admins can review apps"))
 		return
 	}
@@ -198,7 +199,7 @@ func (s *server) reviewApp(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var out App
-	err := s.apps.update(func(apps map[string]*App) error {
+	err := s.apps.Update(func(apps map[string]*App) error {
 		a, ok := apps[r.PathValue("id")]
 		if !ok {
 			return errors.New("app not found")
@@ -220,9 +221,9 @@ func (s *server) reviewApp(w http.ResponseWriter, r *http.Request) {
 
 // ownedApp runs fn on an app owned by the caller.
 func (s *server) ownedApp(r *http.Request, fn func(*App) error) error {
-	return s.apps.update(func(apps map[string]*App) error {
+	return s.apps.Update(func(apps map[string]*App) error {
 		a, ok := apps[r.PathValue("id")]
-		if !ok || a.Owner != caller(r) {
+		if !ok || a.Owner != reqauth.Caller(r) {
 			return errors.New("app not found")
 		}
 		return fn(a)
@@ -296,7 +297,7 @@ func (s *server) apiKeyAuth(next http.HandlerFunc) http.HandlerFunc {
 		}
 		h := hashKey(key)
 		var app *App
-		s.apps.read(func(apps map[string]*App) {
+		s.apps.Read(func(apps map[string]*App) {
 			for _, a := range apps {
 				if a.KeyHash != "" && subtle.ConstantTimeCompare([]byte(a.KeyHash), []byte(h)) == 1 {
 					c := *a

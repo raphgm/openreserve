@@ -43,7 +43,7 @@ func (s *server) deliverWebhooks() {
 	}
 	var jobs []job
 	now := s.now()
-	s.invoices.read(func(m map[string]*Invoice) {
+	s.invoices.Read(func(m map[string]*Invoice) {
 		for _, inv := range m {
 			if inv.HookPending && !now.Before(inv.HookNextAt) {
 				jobs = append(jobs, job{inv: *inv})
@@ -51,7 +51,7 @@ func (s *server) deliverWebhooks() {
 		}
 	})
 	for i := range jobs {
-		s.apps.read(func(apps map[string]*App) {
+		s.apps.Read(func(apps map[string]*App) {
 			if a, ok := apps[jobs[i].inv.AppID]; ok {
 				jobs[i].url, jobs[i].sec = a.WebhookURL, a.WebhookSecret
 			}
@@ -62,7 +62,7 @@ func (s *server) deliverWebhooks() {
 		if j.url != "" {
 			err = s.postWebhook(j.url, j.sec, &j.inv)
 		}
-		s.invoices.update(func(m map[string]*Invoice) error {
+		s.invoices.Update(func(m map[string]*Invoice) error {
 			inv := m[j.inv.ID]
 			if inv == nil {
 				return nil

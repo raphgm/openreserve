@@ -17,8 +17,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openreserve/node/client"
+	"github.com/openreserve/node/jsonstore"
 	"github.com/openreserve/node/keys"
 	"github.com/openreserve/node/ratelimit"
+	"github.com/openreserve/node/reqauth"
 	"github.com/openreserve/node/types"
 )
 
@@ -35,19 +38,23 @@ func main() {
 		watchInterval = flag.Duration("watch-interval", 3*time.Second, "how often to check pending invoices for payment")
 		admins        = flag.String("admins", os.Getenv("ORPAY_ADMINS"), "comma-separated wallet addresses allowed to approve partner apps")
 		publicURL     = flag.String("public-url", "http://localhost:5173", "public URL of the ORPay web app (used in checkout links)")
+		defaultCur    = flag.String("default-currency", "ORP", "currency for checkouts that do not name one (e.g. NGN)")
+		cardPayments  = flag.Bool("card-payments", false, "offer card/bank payment via the Paystack gateway on checkouts in the default currency")
 	)
 	flag.Parse()
 
 	s, err := newServer(serverConfig{
 		usersPath:     *dbPath,
 		stateDir:      filepath.Dir(*dbPath),
-		node:          &nodeClient{base: strings.TrimRight(*nodeURL, "/"), http: &http.Client{Timeout: 10 * time.Second}},
+		node:          client.New(*nodeURL),
 		privateHooks:  *privateHooks,
 		faucetAmount:  *faucetAmt,
 		faucetWait:    *faucetWait,
 		faucetKeyPath: *faucetKey,
 		admins:        *admins,
 		publicURL:     *publicURL,
+		defaultCur:    *defaultCur,
+		cardPayments:  *cardPayments,
 	})
 	if err != nil {
 		log.Fatal(err)
@@ -62,24 +69,28 @@ func main() {
 
 type serverConfig struct {
 	usersPath, stateDir string
-	node                *nodeClient
+	node                *client.Client
 	privateHooks        bool
 	faucetAmount        string
 	faucetWait          time.Duration
 	faucetKeyPath       string
 	admins              string
 	publicURL           string
+	defaultCur          string
+	cardPayments        bool
 }
 
 type server struct {
 	dir          *directory
-	node         *nodeClient
+	node         *client.Client
 	faucet       *faucet
-	invoices     *jsonStore[map[string]*Invoice]
-	apps         *jsonStore[map[string]*App]
+	invoices     *jsonstore.Store[map[string]*Invoice]
+	apps         *jsonstore.Store[map[string]*App]
 	admins       []types.Address
 	publicURL    string
 	privateHooks bool
+	defaultAsset string
+	cardPayments bool
 	hookClient   *http.Client
 	now          func() time.Time
 }
@@ -92,11 +103,11 @@ func newServer(cfg serverConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
-	invoices, err := openStore(filepath.Join(cfg.stateDir, "orpay-invoices.json"), map[string]*Invoice{})
+	invoices, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-invoices.json"), map[string]*Invoice{})
 	if err != nil {
 		return nil, err
 	}
-	apps, err := openStore(filepath.Join(cfg.stateDir, "orpay-apps.json"), map[string]*App{})
+	apps, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-apps.json"), map[string]*App{})
 	if err != nil {
 		return nil, err
 	}
@@ -105,6 +116,13 @@ func newServer(cfg serverConfig) (*server, error) {
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
 		hookClient: webhookClient(cfg.privateHooks),
 	}
+	if c := strings.ToUpper(cfg.defaultCur); c != "" && c != "ORP" {
+		if !types.ValidAsset(c) {
+			return nil, fmt.Errorf("invalid default currency %q", cfg.defaultCur)
+		}
+		s.defaultAsset = c
+	}
+	s.cardPayments = cfg.cardPayments
 	for _, a := range strings.Split(cfg.admins, ",") {
 		if a = strings.TrimSpace(a); a == "" {
 			continue
@@ -146,12 +164,12 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/faucet", strict(5, 2, s.drip))
 
 	// Partner apps: request access, admin review, keys and settings.
-	mux.Handle("POST /api/apps", strict(5, 2, signed(s.requestApp)))
-	mux.HandleFunc("GET /api/apps", signed(s.listApps))
+	mux.Handle("POST /api/apps", strict(5, 2, reqauth.Signed(s.requestApp)))
+	mux.HandleFunc("GET /api/apps", reqauth.Signed(s.listApps))
 	mux.HandleFunc("GET /api/apps/{id}", s.publicApp)
-	mux.Handle("POST /api/apps/{id}/review", strict(30, 10, signed(s.reviewApp)))
-	mux.Handle("POST /api/apps/{id}/keys", strict(10, 3, signed(s.rotateKey)))
-	mux.Handle("POST /api/apps/{id}/settings", strict(30, 10, signed(s.updateApp)))
+	mux.Handle("POST /api/apps/{id}/review", strict(30, 10, reqauth.Signed(s.reviewApp)))
+	mux.Handle("POST /api/apps/{id}/keys", strict(10, 3, reqauth.Signed(s.rotateKey)))
+	mux.Handle("POST /api/apps/{id}/settings", strict(30, 10, reqauth.Signed(s.updateApp)))
 
 	// Server-to-server API for approved apps (API key auth).
 	mux.Handle("POST /api/v1/checkout", strict(120, 40, s.apiKeyAuth(s.createCheckout)))

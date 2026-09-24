@@ -16,7 +16,9 @@ import (
 
 	"github.com/openreserve/node/api"
 	"github.com/openreserve/node/chain"
+	"github.com/openreserve/node/client"
 	"github.com/openreserve/node/keys"
+	"github.com/openreserve/node/reqauth"
 	"github.com/openreserve/node/types"
 )
 
@@ -72,7 +74,7 @@ func (e *env) start() {
 	}
 	s, err := newServer(serverConfig{
 		usersPath: e.dir + "/users.json", stateDir: e.dir,
-		node:         &nodeClient{base: e.nodeURL, http: http.DefaultClient},
+		node:         client.New(e.nodeURL),
 		privateHooks: true, faucetAmount: "100", faucetWait: time.Hour,
 		admins: string(e.admin.addr), publicURL: "https://pay.test",
 	})
@@ -101,7 +103,7 @@ func (e *env) call(method, path string, body any, w *wallet, apiKey string, out 
 	req, _ := http.NewRequest(method, e.api.URL+path, bytes.NewReader(b))
 	if w != nil {
 		ts := time.Now().UnixMilli()
-		sig := ed25519.Sign(w.priv, []byte(RequestMessage(method, strings.SplitN(path, "?", 2)[0], ts, b)))
+		sig := ed25519.Sign(w.priv, []byte(reqauth.RequestMessage(method, strings.SplitN(path, "?", 2)[0], ts, b)))
 		req.Header.Set("X-ORP-Address", string(w.addr))
 		req.Header.Set("X-ORP-Time", strconv.FormatInt(ts, 10))
 		req.Header.Set("X-ORP-Sig", hex.EncodeToString(sig))
@@ -147,7 +149,7 @@ func TestSignedRequests(t *testing.T) {
 	// A signature over a different body is rejected.
 	b, _ := json.Marshal(body)
 	ts := time.Now().UnixMilli()
-	sig := ed25519.Sign(w.priv, []byte(RequestMessage("POST", "/api/apps", ts, []byte(`{"name":"other"}`))))
+	sig := ed25519.Sign(w.priv, []byte(reqauth.RequestMessage("POST", "/api/apps", ts, []byte(`{"name":"other"}`))))
 	req, _ := http.NewRequest("POST", e.api.URL+"/api/apps", bytes.NewReader(b))
 	req.Header.Set("X-ORP-Address", string(w.addr))
 	req.Header.Set("X-ORP-Time", strconv.FormatInt(ts, 10))
@@ -159,7 +161,7 @@ func TestSignedRequests(t *testing.T) {
 
 	// Stale timestamps are rejected.
 	old := time.Now().Add(-10 * time.Minute).UnixMilli()
-	sig = ed25519.Sign(w.priv, []byte(RequestMessage("GET", "/api/apps", old, nil)))
+	sig = ed25519.Sign(w.priv, []byte(reqauth.RequestMessage("GET", "/api/apps", old, nil)))
 	req, _ = http.NewRequest("GET", e.api.URL+"/api/apps", nil)
 	req.Header.Set("X-ORP-Address", string(w.addr))
 	req.Header.Set("X-ORP-Time", strconv.FormatInt(old, 10))

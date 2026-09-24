@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/openreserve/node/jsonstore"
 	"github.com/openreserve/node/types"
 )
 
@@ -22,24 +23,26 @@ func RegisterMessage(name string, addr types.Address) string {
 // directory maps usernames to addresses. Each address may hold one
 // username and names are first come, first served.
 type directory struct {
-	store  *jsonStore[map[string]types.Address]
+	store  *jsonstore.Store[map[string]types.Address]
 	byAddr map[types.Address]string // guarded by store.mu
 }
 
 func openDirectory(path string) (*directory, error) {
-	st, err := openStore(path, map[string]types.Address{})
+	st, err := jsonstore.Open(path, map[string]types.Address{})
 	if err != nil {
 		return nil, err
 	}
 	d := &directory{store: st, byAddr: map[types.Address]string{}}
-	for name, addr := range st.data {
-		d.byAddr[addr] = name
-	}
+	st.Read(func(users map[string]types.Address) {
+		for name, addr := range users {
+			d.byAddr[addr] = name
+		}
+	})
 	return d, nil
 }
 
 func (d *directory) claim(name string, addr types.Address) error {
-	return d.store.update(func(users map[string]types.Address) error {
+	return d.store.Update(func(users map[string]types.Address) error {
 		if owner, ok := users[name]; ok {
 			if owner == addr {
 				return nil
@@ -56,12 +59,12 @@ func (d *directory) claim(name string, addr types.Address) error {
 }
 
 func (d *directory) byName(name string) (a types.Address, ok bool) {
-	d.store.read(func(users map[string]types.Address) { a, ok = users[name] })
+	d.store.Read(func(users map[string]types.Address) { a, ok = users[name] })
 	return
 }
 
 func (d *directory) byAddress(addr types.Address) (n string, ok bool) {
-	d.store.read(func(map[string]types.Address) { n, ok = d.byAddr[addr] })
+	d.store.Read(func(map[string]types.Address) { n, ok = d.byAddr[addr] })
 	return
 }
 

@@ -1,4 +1,7 @@
-package main
+// Package jsonstore keeps a value in memory and persists it to a JSON file
+// with atomic replace, so a crash never leaves a half-written file. It suits
+// pilot-scale data (thousands of records); a database comes later.
+package jsonstore
 
 import (
 	"encoding/json"
@@ -9,17 +12,15 @@ import (
 	"sync"
 )
 
-// jsonStore keeps a value in memory and persists it to a JSON file with
-// atomic replace, so a crash never leaves a half-written file. It suits the
-// pilot's data sizes (thousands of records); a database comes later.
-type jsonStore[T any] struct {
+type Store[T any] struct {
 	mu   sync.RWMutex
 	path string
 	data T
 }
 
-func openStore[T any](path string, empty T) (*jsonStore[T], error) {
-	s := &jsonStore[T]{path: path, data: empty}
+// Open loads path, or starts from empty if the file does not exist.
+func Open[T any](path string, empty T) (*Store[T], error) {
+	s := &Store[T]{path: path, data: empty}
 	b, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return s, nil
@@ -33,26 +34,25 @@ func openStore[T any](path string, empty T) (*jsonStore[T], error) {
 	return s, nil
 }
 
-// read runs fn with a read lock.
-func (s *jsonStore[T]) read(fn func(T)) {
+// Read runs fn with a read lock.
+func (s *Store[T]) Read(fn func(T)) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	fn(s.data)
 }
 
-// update runs fn with a write lock and saves if fn returns nil. If saving
-// fails the in-memory change is kept but the error is returned, and the
-// next successful save persists it.
-func (s *jsonStore[T]) update(fn func(T) error) error {
+// Update runs fn with a write lock and saves if fn returns nil.
+func (s *Store[T]) Update(fn func(T) error) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if err := fn(s.data); err != nil {
 		return err
 	}
-	return writeAtomic(s.path, s.data)
+	return WriteAtomic(s.path, s.data)
 }
 
-func writeAtomic(path string, v any) error {
+// WriteAtomic writes v as JSON to path via a synced temp file and rename.
+func WriteAtomic(path string, v any) error {
 	data, err := json.MarshalIndent(v, "", "  ")
 	if err != nil {
 		return err

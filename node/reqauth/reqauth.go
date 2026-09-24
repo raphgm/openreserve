@@ -1,4 +1,5 @@
-package main
+// Package reqauth verifies wallet-signed HTTP requests.
+package reqauth
 
 import (
 	"bytes"
@@ -6,6 +7,7 @@ import (
 	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -36,11 +38,13 @@ func RequestMessage(method, path string, ts int64, body []byte) string {
 
 // signed wraps a handler so it only runs for a valid signed request. The
 // caller's address is available via caller(r).
-func signed(next http.HandlerFunc) http.HandlerFunc {
+func Signed(next http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		addr, body, err := verifyRequest(w, r)
 		if err != nil {
-			writeErr(w, http.StatusUnauthorized, err)
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusUnauthorized)
+			json.NewEncoder(w).Encode(map[string]string{"error": err.Error()})
 			return
 		}
 		r.Body = io.NopCloser(bytes.NewReader(body))
@@ -75,7 +79,7 @@ func verifyRequest(w http.ResponseWriter, r *http.Request) (types.Address, []byt
 	return addr, body, nil
 }
 
-func caller(r *http.Request) types.Address {
+func Caller(r *http.Request) types.Address {
 	a, _ := r.Context().Value(addrKey{}).(types.Address)
 	return a
 }

@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/openreserve/node/client"
 	"github.com/openreserve/node/types"
 )
 
@@ -28,6 +29,7 @@ type Invoice struct {
 	AppID       string        `json:"app_id"`
 	Merchant    types.Address `json:"merchant"`
 	Amount      types.Amount  `json:"amount"`
+	Asset       string        `json:"asset,omitempty"` // "" = ORP, or an issued asset like "NGN"
 	Description string        `json:"description"`
 	Reference   string        `json:"reference,omitempty"` // the app's own order id
 	ReturnURL   string        `json:"return_url,omitempty"`
@@ -58,7 +60,8 @@ func appFrom(r *http.Request) *App { a, _ := r.Context().Value(appCtxKey{}).(*Ap
 func (s *server) createCheckout(w http.ResponseWriter, r *http.Request) {
 	app := appFrom(r)
 	var req struct {
-		Amount      string `json:"amount"` // decimal ORP, e.g. "12.50"
+		Amount      string `json:"amount"`   // decimal, e.g. "12.50"
+		Currency    string `json:"currency"` // "NGN", "ORP", ... (default: the network's default)
 		Description string `json:"description"`
 		Reference   string `json:"reference"`
 		ReturnURL   string `json:"return_url"`
@@ -71,6 +74,11 @@ func (s *server) createCheckout(w http.ResponseWriter, r *http.Request) {
 	amt, err := types.ParseAmount(req.Amount)
 	if err != nil || amt == 0 {
 		writeErr(w, http.StatusBadRequest, errors.New(`amount must be a positive decimal string, e.g. "12.50"`))
+		return
+	}
+	asset, err := s.checkoutAsset(req.Currency)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
 	if len(req.Description) > 140 || len(req.Reference) > 100 {
@@ -92,11 +100,11 @@ func (s *server) createCheckout(w http.ResponseWriter, r *http.Request) {
 	}
 	now := s.now()
 	inv := &Invoice{
-		ID: randToken("", 10), AppID: app.ID, Merchant: app.Settlement, Amount: amt,
+		ID: randToken("", 10), AppID: app.ID, Merchant: app.Settlement, Amount: amt, Asset: asset,
 		Description: req.Description, Reference: req.Reference, ReturnURL: req.ReturnURL,
 		Status: InvoicePending, CreatedAt: now, ExpiresAt: now.Add(time.Duration(req.ExpiresIn) * time.Minute),
 	}
-	if err := s.invoices.update(func(m map[string]*Invoice) error { m[inv.ID] = inv; return nil }); err != nil {
+	if err := s.invoices.Update(func(m map[string]*Invoice) error { m[inv.ID] = inv; return nil }); err != nil {
 		writeErr(w, http.StatusInternalServerError, err)
 		return
 	}
@@ -106,7 +114,8 @@ func (s *server) createCheckout(w http.ResponseWriter, r *http.Request) {
 func (s *server) invoiceView(inv *Invoice, forApp bool) map[string]any {
 	v := map[string]any{
 		"id": inv.ID, "app_id": inv.AppID, "merchant": inv.Merchant, "amount": inv.Amount,
-		"amount_orp": types.FormatAmount(inv.Amount), "description": inv.Description,
+		"amount_display": types.FormatAmount(inv.Amount), "currency": types.AssetName(inv.Asset), "asset": inv.Asset,
+		"description": inv.Description, "card_payments": s.cardPayments && inv.Asset == s.defaultAsset,
 		"memo": inv.Memo(), "status": inv.Status, "created_at": inv.CreatedAt, "expires_at": inv.ExpiresAt,
 		"checkout_url": s.publicURL + "/?invoice=" + inv.ID,
 	}
@@ -120,7 +129,7 @@ func (s *server) invoiceView(inv *Invoice, forApp bool) map[string]any {
 		v["reference"] = inv.Reference
 		v["return_url"] = inv.ReturnURL
 	}
-	s.apps.read(func(apps map[string]*App) {
+	s.apps.Read(func(apps map[string]*App) {
 		if a, ok := apps[inv.AppID]; ok {
 			v["app"] = a.public()
 		}
@@ -151,7 +160,7 @@ func (s *server) listCheckouts(w http.ResponseWriter, r *http.Request) {
 	app := appFrom(r)
 	status := r.URL.Query().Get("status")
 	var list []*Invoice
-	s.invoices.read(func(m map[string]*Invoice) {
+	s.invoices.Read(func(m map[string]*Invoice) {
 		for _, inv := range m {
 			if inv.AppID == app.ID && (status == "" || inv.Status == status) {
 				c := *inv
@@ -172,7 +181,7 @@ func (s *server) listCheckouts(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) invoice(id string) *Invoice {
 	var out *Invoice
-	s.invoices.read(func(m map[string]*Invoice) {
+	s.invoices.Read(func(m map[string]*Invoice) {
 		if inv, ok := m[id]; ok {
 			c := *inv
 			out = &c
@@ -195,7 +204,7 @@ func (s *server) watchInvoices(every time.Duration) {
 func (s *server) checkInvoices() error {
 	// Group pending invoices by merchant so each address is fetched once.
 	byMerchant := map[types.Address][]string{}
-	s.invoices.read(func(m map[string]*Invoice) {
+	s.invoices.Read(func(m map[string]*Invoice) {
 		for id, inv := range m {
 			if inv.Status == InvoicePending {
 				byMerchant[inv.Merchant] = append(byMerchant[inv.Merchant], id)
@@ -204,25 +213,26 @@ func (s *server) checkInvoices() error {
 	})
 	var firstErr error
 	for merchant, ids := range byMerchant {
-		hist, err := s.node.history(merchant)
+		hist, err := s.node.History(merchant)
 		if err != nil {
 			firstErr = err
 			continue
 		}
-		payments := map[string][]historyEntry{} // memo -> payments, oldest first
+		payments := map[string][]client.HistoryEntry{} // memo -> payments, oldest first
 		for i := len(hist) - 1; i >= 0; i-- {
-			if e := hist[i]; e.Tx.To == merchant && strings.HasPrefix(e.Tx.Memo, "inv:") {
-				payments[e.Tx.Memo] = append(payments[e.Tx.Memo], e)
+			if e := hist[i]; e.Tx.To == merchant && e.Tx.Kind != types.KindBurn && strings.HasPrefix(e.Tx.Memo, "inv:") {
+				key, _, _ := strings.Cut(e.Tx.Memo, " ") // "inv:<id>", optionally followed by more
+				payments[key] = append(payments[key], e)
 			}
 		}
 		now := s.now()
-		s.invoices.update(func(m map[string]*Invoice) error {
+		s.invoices.Update(func(m map[string]*Invoice) error {
 			for _, id := range ids {
 				inv := m[id]
 				if inv == nil || inv.Status != InvoicePending {
 					continue
 				}
-				if p, ok := firstCovering(payments[inv.Memo()], inv.Amount); ok {
+				if p, ok := firstCovering(payments[inv.Memo()], inv.Amount, inv.Asset); ok {
 					inv.Status, inv.PaidAt, inv.PaidTx, inv.PaidBy, inv.Height = InvoicePaid, time.UnixMilli(p.Time), p.ID, p.Tx.From, p.Height
 					inv.HookPending, inv.HookTries, inv.HookNextAt = true, 0, now
 				} else if now.After(inv.ExpiresAt) {
@@ -242,11 +252,36 @@ func (s *server) invoiceSummary(inv *Invoice) string {
 
 // firstCovering returns the earliest payment of at least amt. Partial
 // payments are not summed: each checkout expects one payment.
-func firstCovering(ps []historyEntry, amt types.Amount) (historyEntry, bool) {
+func firstCovering(ps []client.HistoryEntry, amt types.Amount, asset string) (client.HistoryEntry, bool) {
 	for _, p := range ps {
-		if p.Tx.Amount >= amt {
+		if p.Tx.Asset == asset && p.Tx.Amount >= amt {
 			return p, true
 		}
 	}
-	return historyEntry{}, false
+	return client.HistoryEntry{}, false
+}
+
+// checkoutAsset maps a requested currency to a ledger asset. An empty
+// currency uses the network default (NGN when the Paystack gateway runs).
+func (s *server) checkoutAsset(currency string) (string, error) {
+	switch c := strings.ToUpper(strings.TrimSpace(currency)); c {
+	case "":
+		return s.defaultAsset, nil
+	case "ORP":
+		return "", nil
+	default:
+		if !types.ValidAsset(c) {
+			return "", fmt.Errorf("unknown currency %q", currency)
+		}
+		st, err := s.node.Status()
+		if err != nil {
+			return "", err
+		}
+		for _, a := range st.Assets {
+			if a.Symbol == c {
+				return c, nil
+			}
+		}
+		return "", fmt.Errorf("currency %s is not available on this network", c)
+	}
 }

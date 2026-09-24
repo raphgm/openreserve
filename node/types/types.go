@@ -101,6 +101,7 @@ type Tx struct {
 	Asset   string    `json:"asset,omitempty"` // "" = ORP
 	Pool    *PoolOp   `json:"pool,omitempty"`
 	Escrow  *EscrowOp `json:"escrow,omitempty"`
+	Guard   *GuardOp  `json:"guard,omitempty"`
 	Sig     HexBytes  `json:"sig"`
 }
 
@@ -191,6 +192,34 @@ func (e *EscrowOp) Total() Amount {
 	return t
 }
 
+// Social recovery. An account names guardians (e.g. family, ajo members)
+// and a threshold. If its owner loses their phone, a new device makes a
+// new key; enough guardians approve moving the account to it; after a
+// safety delay anyone finishes the recovery and everything the account
+// holds moves to the new key: balances, ajo memberships and escrows. The
+// old key can cancel during the delay, so a guardian cannot steal it
+// unnoticed.
+const (
+	GuardSet     = "set"     // owner: set guardians, threshold and delay
+	GuardStart   = "start"   // guardian: propose moving Account to NewOwner
+	GuardApprove = "approve" // guardian: approve the pending recovery
+	GuardCancel  = "cancel"  // owner (old key): cancel a pending recovery
+	GuardFinish  = "finish"  // anyone: complete it after approvals and delay
+
+	MaxGuardians  = 5
+	MinGuardDelay = 3600 // seconds
+)
+
+// GuardOp is the recovery-specific part of a Tx.
+type GuardOp struct {
+	Op        string    `json:"op"`
+	Guardians []Address `json:"guardians,omitempty"` // set
+	Threshold int       `json:"threshold,omitempty"` // set
+	DelaySecs int64     `json:"delay_secs,omitempty"`
+	Account   Address   `json:"account,omitempty"`   // start/approve/finish
+	NewOwner  Address   `json:"new_owner,omitempty"` // start/approve
+}
+
 // PoolOp is the pool-specific part of a Tx.
 type PoolOp struct {
 	Op string `json:"op"`
@@ -237,7 +266,7 @@ func (e *encoder) raw(b []byte) { e.buf = append(e.buf, b...) }
 // Plain ORP transfers keep the v1 encoding; everything else uses v2.
 func (tx *Tx) SignBytes() []byte {
 	e := &encoder{}
-	v2 := tx.Pool != nil || tx.Kind != "" || tx.Asset != "" || tx.Escrow != nil
+	v2 := tx.Pool != nil || tx.Kind != "" || tx.Asset != "" || tx.Escrow != nil || tx.Guard != nil
 	if v2 {
 		e.str("openreserve/tx/v2")
 	} else {
@@ -288,6 +317,18 @@ func (tx *Tx) SignBytes() []byte {
 		e.str(x.Ref)
 		e.u64(x.ToSeller)
 	}
+	if g := tx.Guard; g != nil { // appended only when present
+		e.raw([]byte{4})
+		e.str(g.Op)
+		e.u64(uint64(len(g.Guardians)))
+		for _, a := range g.Guardians {
+			e.str(string(a))
+		}
+		e.u64(uint64(g.Threshold))
+		e.u64(uint64(g.DelaySecs))
+		e.str(string(g.Account))
+		e.str(string(g.NewOwner))
+	}
 	return e.buf
 }
 
@@ -316,6 +357,11 @@ func (tx *Tx) CheckStateless(chainID string) error {
 	}
 	var err error
 	switch {
+	case tx.Guard != nil:
+		if tx.Kind != "" || tx.Pool != nil || tx.Escrow != nil || tx.To != "" || tx.Amount != 0 {
+			return errors.New("recovery operations carry only the guard op")
+		}
+		err = tx.checkGuardOp()
 	case tx.Escrow != nil:
 		if tx.Kind != "" || tx.Pool != nil {
 			return errors.New("escrow operations cannot carry a kind or pool op")
@@ -389,6 +435,58 @@ func (tx *Tx) checkBurn() error {
 	}
 	if tx.Amount+tx.Fee < tx.Amount {
 		return errors.New("amount + fee overflows")
+	}
+	return nil
+}
+
+func (tx *Tx) checkGuardOp() error {
+	g := tx.Guard
+	switch g.Op {
+	case GuardSet:
+		if len(g.Guardians) == 0 || len(g.Guardians) > MaxGuardians {
+			return fmt.Errorf("choose 1-%d guardians", MaxGuardians)
+		}
+		seen := map[Address]bool{}
+		for _, a := range g.Guardians {
+			if err := a.Validate(); err != nil {
+				return fmt.Errorf("guardian: %w", err)
+			}
+			if a == tx.From || seen[a] {
+				return errors.New("guardians must be distinct and not yourself")
+			}
+			seen[a] = true
+		}
+		if g.Threshold < 1 || g.Threshold > len(g.Guardians) {
+			return errors.New("threshold must be between 1 and the number of guardians")
+		}
+		if g.DelaySecs < MinGuardDelay || g.DelaySecs > 30*24*3600 {
+			return errors.New("recovery delay must be 1 hour to 30 days")
+		}
+		if g.Account != "" || g.NewOwner != "" {
+			return errors.New("set takes guardians, threshold and delay only")
+		}
+	case GuardStart, GuardApprove:
+		if err := g.Account.Validate(); err != nil {
+			return fmt.Errorf("account: %w", err)
+		}
+		if err := g.NewOwner.Validate(); err != nil {
+			return fmt.Errorf("new owner: %w", err)
+		}
+		if g.NewOwner == g.Account {
+			return errors.New("the new key must differ from the old one")
+		}
+		if len(g.Guardians) != 0 || g.Threshold != 0 || g.DelaySecs != 0 {
+			return fmt.Errorf("%s takes account and new_owner only", g.Op)
+		}
+	case GuardCancel, GuardFinish:
+		if err := g.Account.Validate(); err != nil {
+			return fmt.Errorf("account: %w", err)
+		}
+		if len(g.Guardians) != 0 || g.Threshold != 0 || g.DelaySecs != 0 || g.NewOwner != "" {
+			return fmt.Errorf("%s takes the account only", g.Op)
+		}
+	default:
+		return fmt.Errorf("unknown recovery op %q", g.Op)
 	}
 	return nil
 }

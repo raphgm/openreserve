@@ -79,7 +79,7 @@ class Encoder {
 // fields appended (see node/types.Tx.SignBytes).
 export function txSignBytes(tx) {
   const e = new Encoder()
-  e.str(tx.pool || tx.kind || tx.asset || tx.escrow ? 'openreserve/tx/v2' : 'openreserve/tx/v1')
+  e.str(tx.pool || tx.kind || tx.asset || tx.escrow || tx.guard ? 'openreserve/tx/v2' : 'openreserve/tx/v1')
   e.str(tx.chain_id)
   e.str(tx.from)
   e.str(tx.to ?? '')
@@ -87,7 +87,7 @@ export function txSignBytes(tx) {
   e.u64(tx.fee)
   e.u64(tx.nonce)
   e.str(tx.memo ?? '')
-  const v2 = tx.pool || tx.kind || tx.asset || tx.escrow
+  const v2 = tx.pool || tx.kind || tx.asset || tx.escrow || tx.guard
   if (!v2) return e.bytes()
   e.str(tx.kind ?? '')
   e.str(tx.asset ?? '')
@@ -124,6 +124,18 @@ export function txSignBytes(tx) {
     e.u64(x.review_secs ?? 0)
     e.str(x.ref ?? '')
     e.u64(x.to_seller ?? 0)
+  }
+  if (tx.guard) {
+    const g = tx.guard
+    e.parts.push(new Uint8Array([4]))
+    e.str(g.op)
+    const gs = g.guardians ?? []
+    e.u64(gs.length)
+    for (const a of gs) e.str(a)
+    e.u64(g.threshold ?? 0)
+    e.u64(g.delay_secs ?? 0)
+    e.str(g.account ?? '')
+    e.str(g.new_owner ?? '')
   }
   return e.bytes()
 }
@@ -167,13 +179,19 @@ export const node = {
   tx: (id) => call(`/v1/txs/${id}`),
   pool: (id) => call(`/v1/pools/${id}`),
   escrow: (id) => call(`/v1/escrows/${id}`),
+  recovery: (addr) => call(`/v1/accounts/${addr}/recovery`),
   escrows: (addr) => call(`/v1/accounts/${addr}/escrows`),
   pools: (addr) => call(`/v1/accounts/${addr}/pools`),
   submit: (tx) => {
     const body = { ...tx, amount: Number(tx.amount), fee: Number(tx.fee) }
     if (!body.kind) delete body.kind
     if (!body.asset) delete body.asset
-    if (tx.pool || tx.escrow || tx.kind === 'burn') if (!body.to) delete body.to
+    if (tx.pool || tx.escrow || tx.guard || tx.kind === 'burn') if (!body.to) delete body.to
+    if (tx.guard) {
+      const g = { ...tx.guard }
+      for (const k of Object.keys(g)) if (g[k] == null || g[k] === '' || g[k] === 0 || (Array.isArray(g[k]) && !g[k].length)) delete g[k]
+      body.guard = g
+    }
     if (tx.escrow) {
       const x = { ...tx.escrow }
       if (x.milestones) x.milestones = x.milestones.map(Number)
@@ -203,6 +221,22 @@ export async function escrowOp({ seed, op, id, seller, arbiter, milestones, ship
   if (op === 'resolve') escrow.to_seller = BigInt(toSeller ?? 0)
   const tx = await signTx(
     { chain_id: st.chain_id, from, to: '', amount: 0n, fee: op === 'create' ? feeFor(st, asset) : 0n, nonce: acc.next_nonce, memo, escrow, ...(asset ? { asset } : {}) },
+    seed,
+  )
+  return (await node.submit(tx)).id
+}
+
+// Sign and submit a social-recovery operation. "set" costs the normal fee;
+// guardians' steps (start/approve) and cancel/finish are free.
+export async function guardOp({ seed, op, guardians, threshold, delaySecs, account, newOwner }) {
+  const from = await addressOf(seed)
+  const [st, acc] = await Promise.all([node.status(), node.account(from)])
+  const guard = { op }
+  if (op === 'set') Object.assign(guard, { guardians, threshold, delay_secs: delaySecs })
+  if (account) guard.account = account
+  if (newOwner) guard.new_owner = newOwner
+  const tx = await signTx(
+    { chain_id: st.chain_id, from, to: '', amount: 0n, fee: op === 'set' ? BigInt(st.min_fee) : 0n, nonce: acc.next_nonce, memo: '', guard },
     seed,
   )
   return (await node.submit(tx)).id

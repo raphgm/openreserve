@@ -29,6 +29,7 @@ func Handler(c *chain.Chain) http.Handler {
 	mux.HandleFunc("GET /v1/pools/{id}", s.pool)
 	mux.HandleFunc("GET /v1/accounts/{addr}/pools", s.accountPools)
 	mux.HandleFunc("GET /v1/escrows/{id}", s.escrow)
+	mux.HandleFunc("GET /v1/accounts/{addr}/recovery", s.recovery)
 	mux.HandleFunc("GET /v1/accounts/{addr}/escrows", s.accountEscrows)
 	return cors(mux)
 }
@@ -194,6 +195,17 @@ func (s *server) accountEscrows(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.c.EscrowsOf(addr))
+}
+
+// recovery reports guardians, any pending recovery, whether the account was
+// moved to a new key, and recovery requests this address can approve.
+func (s *server) recovery(w http.ResponseWriter, r *http.Request) {
+	addr := types.Address(r.PathValue("addr"))
+	if err := addr.Validate(); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s.c.Recovery(addr))
 }
 
 func assetsOrEmpty(m map[string]types.Amount) map[string]types.Amount {

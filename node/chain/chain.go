@@ -345,6 +345,14 @@ func (c *Chain) index(b *types.Block) {
 			}
 			c.byEscrow[eid] = append(c.byEscrow[eid], loc)
 		}
+		if g := tx.Guard; g != nil && g.Account != "" {
+			if g.Account != tx.From {
+				c.byAddr[g.Account] = append(c.byAddr[g.Account], loc)
+			}
+			if g.NewOwner != "" {
+				c.byAddr[g.NewOwner] = append(c.byAddr[g.NewOwner], loc)
+			}
+		}
 		if tx.Pool != nil {
 			pid := tx.Pool.ID
 			if tx.Pool.Op == types.PoolCreate {
@@ -687,4 +695,38 @@ func (c *Chain) StateRoot() types.Hash {
 	c.mu.RLock()
 	defer c.mu.RUnlock()
 	return c.state.Root()
+}
+
+// RecoveryInfo is an account's social-recovery status.
+type RecoveryInfo struct {
+	Guardianship *ledger.Guardianship `json:"guardianship"`
+	RecoveredTo  types.Address        `json:"recovered_to,omitempty"`
+	Guarding     []types.Address      `json:"guarding"` // accounts that name this address as guardian
+	Requests     []GuardRequest       `json:"requests"` // pending recoveries this address can act on as guardian
+}
+
+// GuardRequest is a pending recovery a guardian may approve.
+type GuardRequest struct {
+	Account   types.Address `json:"account"`
+	NewOwner  types.Address `json:"new_owner"`
+	Approvals int           `json:"approvals"`
+	Threshold int           `json:"threshold"`
+	Approved  bool          `json:"approved"`
+	ReadyAt   int64         `json:"ready_at,omitempty"`
+}
+
+func (c *Chain) Recovery(a types.Address) RecoveryInfo {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	info := RecoveryInfo{Guardianship: c.state.Guardianship(a), RecoveredTo: c.state.RecoveredTo[a], Guarding: []types.Address{}, Requests: []GuardRequest{}}
+	for _, acct := range c.state.GuardedBy(a) {
+		info.Guarding = append(info.Guarding, acct)
+		if g := c.state.Guards[acct]; g.Pending != nil {
+			info.Requests = append(info.Requests, GuardRequest{
+				Account: acct, NewOwner: g.Pending.NewOwner, Approvals: len(g.Pending.Approvals), Threshold: g.Threshold,
+				Approved: slices.Contains(g.Pending.Approvals, a), ReadyAt: g.Pending.ReadyAt,
+			})
+		}
+	}
+	return info
 }

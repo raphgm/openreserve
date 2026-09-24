@@ -161,6 +161,8 @@ type State struct {
 	AssetDefs   map[string]AssetDef     // fixed at genesis
 	AssetSupply map[string]types.Amount // units of each issued asset in existence
 	Escrows     map[types.Hash]*Escrow
+	Guards      map[types.Address]*Guardianship // social-recovery setups
+	RecoveredTo map[types.Address]types.Address // old key -> new key
 	// Now is the time rules are evaluated at (unix ms): the block's time
 	// while executing a block, the tip's time when checking the mempool.
 	Now int64
@@ -177,6 +179,7 @@ var (
 	ErrPool         = errors.New("pool rule")
 	ErrAsset        = errors.New("asset rule")
 	ErrEscrow       = errors.New("escrow rule")
+	ErrGuard        = errors.New("recovery rule")
 )
 
 // New creates an empty state.
@@ -185,6 +188,7 @@ func New(minFee types.Amount) *State {
 		Accounts: map[types.Address]Account{}, Pools: map[types.Hash]*Pool{}, MinFee: minFee,
 		AssetDefs: map[string]AssetDef{}, AssetSupply: map[string]types.Amount{},
 		Escrows: map[types.Hash]*Escrow{},
+		Guards:  map[types.Address]*Guardianship{}, RecoveredTo: map[types.Address]types.Address{},
 	}
 }
 
@@ -204,6 +208,12 @@ func (s *State) Normalize() {
 	}
 	if s.Escrows == nil {
 		s.Escrows = map[types.Hash]*Escrow{}
+	}
+	if s.Guards == nil {
+		s.Guards = map[types.Address]*Guardianship{}
+	}
+	if s.RecoveredTo == nil {
+		s.RecoveredTo = map[types.Address]types.Address{}
 	}
 }
 
@@ -317,7 +327,8 @@ func (s *State) apply(tx *types.Tx, commit bool) error {
 	}
 	// Escrow steps after create are free, so a seller with no balance can
 	// still record dispatch and an arbiter can still resolve.
-	feeFree := tx.Kind == types.KindMint || (tx.Escrow != nil && tx.Escrow.Op != types.EscrowCreate)
+	feeFree := tx.Kind == types.KindMint || (tx.Escrow != nil && tx.Escrow.Op != types.EscrowCreate) ||
+		(tx.Guard != nil && tx.Guard.Op != types.GuardSet) // guardians need no balance to help
 	if !feeFree && tx.Fee < s.MinFeeFor(tx.Asset) {
 		return fmt.Errorf("%w: need %s %s", ErrFeeTooLow, types.FormatAmount(s.MinFeeFor(tx.Asset)), types.AssetName(tx.Asset))
 	}
@@ -344,6 +355,8 @@ func (s *State) apply(tx *types.Tx, commit bool) error {
 	var effect func()
 	var err error
 	switch {
+	case tx.Guard != nil:
+		effect, err = s.guardOp(tx)
 	case tx.Escrow != nil:
 		effect, err = s.escrowOp(tx)
 	case tx.Pool != nil:
@@ -666,6 +679,11 @@ func (s *State) Clone() *State {
 	for k, v := range s.Escrows {
 		c.Escrows[k] = v.clone()
 	}
+	c.Guards = make(map[types.Address]*Guardianship, len(s.Guards))
+	for k, v := range s.Guards {
+		c.Guards[k] = v.clone()
+	}
+	c.RecoveredTo = maps.Clone(s.RecoveredTo)
 	c.Pools = make(map[types.Hash]*Pool, len(s.Pools))
 	for k, v := range s.Pools {
 		c.Pools[k] = v.clone()
@@ -768,6 +786,30 @@ func (s *State) Root() types.Hash {
 		str(e.Tracking)
 		u64(e.PaidSeller)
 		u64(e.PaidBuyer)
+	}
+
+	for _, a := range slices.Sorted(maps.Keys(s.Guards)) {
+		g := s.Guards[a]
+		h.Write([]byte("guard"))
+		str(string(a))
+		for _, x := range g.Guardians {
+			str(string(x))
+		}
+		u64(uint64(g.Threshold))
+		u64(uint64(g.DelaySecs))
+		if p := g.Pending; p != nil {
+			str(string(p.NewOwner))
+			for _, x := range p.Approvals {
+				str(string(x))
+			}
+			u64(uint64(p.StartedAt))
+			u64(uint64(p.ReadyAt))
+		}
+	}
+	for _, a := range slices.Sorted(maps.Keys(s.RecoveredTo)) {
+		h.Write([]byte("moved"))
+		str(string(a))
+		str(string(s.RecoveredTo[a]))
 	}
 
 	u64(s.Supply)

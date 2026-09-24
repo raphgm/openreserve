@@ -21,6 +21,10 @@ const vectors = {
     '36f569c0bb0fc3e642bcc2b5a0885c3282d5f35a4b188292c93a53c3df191e0c'],
   poolsched: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 6, asset: 'NGN', pool: { op: 'create', name: 'Ajo', members: [FROM, TO], contribution: 10_000_000n, round_secs: 604800, deposit: 10_000_000n } },
     'f115f625edf0067d576e3bb8336fcb077161ef8bd55341284b20a620edb507c2'],
+  guardset: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 8, guard: { op: 'set', guardians: [TO, '3'.repeat(64)], threshold: 2, delay_secs: 172800 } },
+    '9ad58e09fe63ed3fe1f01d05ec92fbbb66aed34f36386a899d63faf625babecc'],
+  guardstart: [{ chain_id: 'c1', from: TO, to: '', amount: 0n, fee: 0n, nonce: 9, guard: { op: 'start', account: FROM, new_owner: '4'.repeat(64) } },
+    '800da8309049e5e3491b6b2301fd3e768b33316ba7911fa899e1cf6208683e84'],
   pooljoin: [{ chain_id: 'c1', from: TO, to: '', amount: 0n, fee: 1000n, nonce: 0, pool: { op: 'join', id: ID } },
     '82ebaedcce1ec1bbfc48bf170294f7a95c02913657098321586997bc922aedf7'],
   escrow: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 4, asset: 'NGN', escrow: {

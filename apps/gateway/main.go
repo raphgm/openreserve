@@ -1,12 +1,14 @@
-// Command gateway connects OpenReserve to real naira through Paystack.
+// Command gateway connects OpenReserve to real naira through pluggable
+// money rails (Paystack, Flutterwave; a bank or MFB partner can be added by
+// implementing Provider).
 //
 // It is the only holder of the NGN issuer key. Every NGN unit on-chain is
 // minted only after Paystack confirms the matching naira was collected, and
 // every withdrawal destroys NGN on-chain before naira is paid out:
 //
-//	Deposit:    Paystack checkout -> charge.success -> verify -> mint NGN to wallet
-//	Withdrawal: user burns NGN (memo wd:<id>) -> Paystack transfer to bank
-//	            -> transfer.success (done) | transfer.failed (NGN minted back)
+//	Deposit:    provider checkout -> verified collection -> mint NGN to wallet
+//	Withdrawal: user burns NGN (memo wd:<id>) -> provider payout to bank
+//	            -> success (done) | failed (NGN minted back)
 //	Card pay:   partner checkout paid by card -> mint NGN to the merchant with
 //	            memo inv:<id>, which the ORPay backend treats as payment
 //
@@ -27,6 +29,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -52,14 +55,32 @@ func main() {
 		backendURL  = flag.String("backend", "http://localhost:4000", "ORPay backend (for partner invoices)")
 		publicURL   = flag.String("public-url", "http://localhost:5173", "public URL of the ORPay web app (Paystack returns here)")
 		paystackAPI = flag.String("paystack-api", "https://api.paystack.co", "Paystack API base URL")
+		flwAPI      = flag.String("flutterwave-api", "https://api.flutterwave.com/v3", "Flutterwave API base URL")
+		defaultProv = flag.String("default-provider", "", "provider for requests that do not choose one (default: first configured)")
 		asset       = flag.String("asset", "NGN", "on-chain asset this gateway issues")
 		wdFee       = flag.String("withdraw-fee", "50", "flat fee in naira kept from each withdrawal (covers the Paystack transfer fee)")
 		trustProxy  = flag.Bool("trust-proxy", false, "use X-Forwarded-For for client IPs (only behind a reverse proxy)")
 	)
 	flag.Parse()
-	secret := os.Getenv("PAYSTACK_SECRET_KEY")
-	if secret == "" {
-		log.Fatal("set PAYSTACK_SECRET_KEY (sk_test_... for test mode)")
+	providers := map[string]Provider{}
+	var order []string
+	if k := os.Getenv("PAYSTACK_SECRET_KEY"); k != "" {
+		providers["paystack"] = newPaystack(*paystackAPI, k)
+		order = append(order, "paystack")
+	}
+	if k := os.Getenv("FLW_SECRET_KEY"); k != "" {
+		providers["flutterwave"] = newFlutterwave(*flwAPI, k, os.Getenv("FLW_SECRET_HASH"))
+		order = append(order, "flutterwave")
+	}
+	if len(providers) == 0 {
+		log.Fatal("configure a provider: PAYSTACK_SECRET_KEY and/or FLW_SECRET_KEY (+ FLW_SECRET_HASH)")
+	}
+	def := order[0]
+	if *defaultProv != "" {
+		if providers[*defaultProv] == nil {
+			log.Fatalf("default provider %q is not configured", *defaultProv)
+		}
+		def = *defaultProv
 	}
 	issuer, err := keys.Resolve("", "ORP_ISSUER_SEED")
 	if err != nil || issuer == nil {
@@ -71,14 +92,18 @@ func main() {
 	}
 	g, err := newGateway(config{
 		dataDir: *dataDir, node: client.New(*nodeURL), backend: strings.TrimRight(*backendURL, "/"),
-		publicURL: strings.TrimRight(*publicURL, "/"), ps: newPaystack(*paystackAPI, secret),
+		publicURL: strings.TrimRight(*publicURL, "/"), providers: providers, defaultProvider: def,
 		issuer: issuer, asset: *asset, withdrawFee: fee,
 	})
 	if err != nil {
 		log.Fatal(err)
 	}
-	if strings.HasPrefix(secret, "sk_test_") {
-		log.Print("Paystack TEST mode: no real money moves")
+	for _, name := range order {
+		mode := "LIVE: real money"
+		if providers[name].TestMode() {
+			mode = "TEST mode: no real money moves"
+		}
+		log.Printf("provider %s (%s)", name, mode)
 	}
 	go g.watch(3 * time.Second)
 	log.Printf("gateway for %s listening on %s (issuer %s)", *asset, *listen, keys.Address(issuer))
@@ -89,7 +114,8 @@ func main() {
 type config struct {
 	dataDir, backend, publicURL, asset string
 	node                               *client.Client
-	ps                                 *paystack
+	providers                          map[string]Provider
+	defaultProvider                    string
 	issuer                             ed25519.PrivateKey
 	withdrawFee                        types.Amount
 }
@@ -102,8 +128,8 @@ type gateway struct {
 	now         func() time.Time
 	banksCache  struct {
 		sync.Mutex
-		list []psBank
-		at   time.Time
+		lists map[string][]Bank
+		at    map[string]time.Time
 	}
 }
 
@@ -135,16 +161,29 @@ func (g *gateway) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /pay/withdrawals", strict(10, 3, reqauth.Signed(g.createWithdrawal)))
 	mux.HandleFunc("GET /pay/withdrawals", reqauth.Signed(g.listWithdrawals))
 	mux.Handle("POST /pay/invoices/{id}/card", strict(20, 5, http.HandlerFunc(g.payInvoiceByCard)))
-	mux.HandleFunc("POST /pay/webhooks/paystack", g.paystackWebhook)
+	mux.HandleFunc("POST /pay/webhooks/{provider}", g.webhook)
 	mux.HandleFunc("GET /pay/reserve", g.reserve)
 	return cors(mux)
+}
+
+// provider picks the named provider, or the default for "".
+func (g *gateway) provider(name string) (Provider, string, error) {
+	if name == "" {
+		name = g.defaultProvider
+	}
+	p := g.providers[name]
+	if p == nil {
+		return nil, "", fmt.Errorf("payment provider %q is not available", name)
+	}
+	return p, name, nil
 }
 
 // ----- deposits -----
 
 type Deposit struct {
 	Reference string        `json:"reference"`
-	Kind      string        `json:"kind"`    // "deposit" or "invoice"
+	Kind      string        `json:"kind"` // "deposit" or "invoice"
+	Provider  string        `json:"provider,omitempty"`
 	Address   types.Address `json:"address"` // who receives the minted NGN
 	Invoice   string        `json:"invoice,omitempty"`
 	Net       types.Amount  `json:"net"` // NGN to mint
@@ -159,17 +198,25 @@ type Deposit struct {
 var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
 func (g *gateway) configInfo(w http.ResponseWriter, _ *http.Request) {
+	test := false
+	names := []string{}
+	for name, p := range g.providers {
+		names = append(names, name)
+		test = test || p.TestMode()
+	}
+	sort.Strings(names)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"asset": g.asset, "issuer": keys.Address(g.issuer), "withdraw_fee": g.withdrawFee,
-		"test_mode": strings.HasPrefix(g.ps.secret, "sk_test_"),
+		"test_mode": test, "providers": names, "default_provider": g.defaultProvider,
 	})
 }
 
 // createDeposit starts a Paystack checkout that credits the caller's wallet.
 func (g *gateway) createDeposit(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Amount string `json:"amount"` // naira, e.g. "5000"
-		Email  string `json:"email"`
+		Amount   string `json:"amount"` // naira, e.g. "5000"
+		Email    string `json:"email"`
+		Provider string `json:"provider"`
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -184,13 +231,23 @@ func (g *gateway) createDeposit(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("enter a valid email for your Paystack receipt"))
 		return
 	}
-	d := &Deposit{Reference: "dep_" + randHex(10), Kind: "deposit", Address: reqauth.Caller(r), Net: net, Status: "pending", CreatedAt: g.now()}
+	_, prov, err := g.provider(req.Provider)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	d := &Deposit{Reference: "dep_" + randHex(10), Kind: "deposit", Provider: prov, Address: reqauth.Caller(r), Net: net, Status: "pending", CreatedAt: g.now()}
 	g.startCheckout(w, d, req.Email, g.publicURL+"/?deposit="+d.Reference)
 }
 
 func (g *gateway) startCheckout(w http.ResponseWriter, d *Deposit, email, callback string) {
-	d.ChargedKb = grossUp(toKobo(d.Net))
-	init, err := g.ps.initialize(email, d.ChargedKb, d.Reference, callback, map[string]string{
+	p, _, err := g.provider(d.Provider)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	d.ChargedKb = p.GrossUp(toKobo(d.Net))
+	url, err := p.StartCollection(email, d.ChargedKb, d.Reference, callback, map[string]string{
 		"kind": d.Kind, "address": string(d.Address), "invoice": d.Invoice,
 	})
 	if err != nil {
@@ -202,7 +259,7 @@ func (g *gateway) startCheckout(w http.ResponseWriter, d *Deposit, email, callba
 		return
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{
-		"reference": d.Reference, "authorization_url": init.AuthorizationURL,
+		"reference": d.Reference, "authorization_url": url, "provider": d.Provider,
 		"amount": d.Net, "charge_kobo": d.ChargedKb, "fee_kobo": d.ChargedKb - toKobo(d.Net),
 	})
 }
@@ -242,28 +299,34 @@ func (g *gateway) settleDeposit(ref string) {
 	if d == nil || d.Status != "pending" {
 		return
 	}
-	tx, err := g.ps.verify(ref)
+	p, _, err := g.provider(orDefault(d.Provider, "paystack"))
+	if err != nil {
+		log.Printf("deposit %s: %v", ref, err)
+		return
+	}
+	tx, err := p.VerifyCollection(ref)
 	if err != nil {
 		log.Printf("verify %s: %v", ref, err)
 		return
 	}
 	switch tx.Status {
-	case "success":
-	case "failed", "abandoned", "reversed":
-		if g.now().Sub(d.CreatedAt) > time.Hour || tx.Status != "abandoned" {
-			g.setDeposit(ref, func(d *Deposit) { d.Status, d.Error = "failed", "payment "+tx.Status })
-		}
+	case StatusSuccess:
+	case StatusFailed:
+		g.setDeposit(ref, func(d *Deposit) { d.Status, d.Error = "failed", "payment failed" })
 		return
 	default:
-		return // ongoing, pending, queued...
+		if g.now().Sub(d.CreatedAt) > 48*time.Hour {
+			g.setDeposit(ref, func(d *Deposit) { d.Status, d.Error = "failed", "payment was not completed" })
+		}
+		return
 	}
-	// Never mint more than the naira actually received after Paystack fees.
-	received := toMicro(tx.Amount - tx.Fees)
-	if tx.Currency != "NGN" || tx.Reference != ref || received < d.Net {
+	// Never mint more than the naira actually received after provider fees.
+	received := toMicro(tx.GrossKobo - tx.FeeKobo)
+	if tx.Currency != "NGN" || tx.Ref != ref || received < d.Net {
 		g.setDeposit(ref, func(d *Deposit) {
-			d.Status, d.Error = "failed", fmt.Sprintf("amount mismatch: received %d kobo net, expected %d", tx.Amount-tx.Fees, toKobo(d.Net))
+			d.Status, d.Error = "failed", fmt.Sprintf("amount mismatch: received %d kobo net, expected %d", tx.GrossKobo-tx.FeeKobo, toKobo(d.Net))
 		})
-		log.Printf("ALERT deposit %s: paystack says %+v, expected net %d", ref, tx, d.Net)
+		log.Printf("ALERT deposit %s: %s says %+v, expected net %d", ref, p.Name(), tx, d.Net)
 		return
 	}
 	memo := "paystack:" + ref
@@ -314,7 +377,8 @@ func (g *gateway) setDeposit(ref string, fn func(*Deposit)) {
 // card/bank via Paystack; the NGN is minted straight to the merchant.
 func (g *gateway) payInvoiceByCard(w http.ResponseWriter, r *http.Request) {
 	var req struct {
-		Email string `json:"email"`
+		Email    string `json:"email"`
+		Provider string `json:"provider"`
 	}
 	if err := decodeBody(r, &req); err != nil || !emailRe.MatchString(req.Email) {
 		writeErr(w, http.StatusBadRequest, errors.New("enter a valid email for your receipt"))
@@ -342,8 +406,13 @@ func (g *gateway) payInvoiceByCard(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("this checkout cannot be paid by card"))
 		return
 	}
+	_, prov, err := g.provider(req.Provider)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	d := &Deposit{
-		Reference: "inv_" + randHex(10), Kind: "invoice", Address: inv.Merchant, Invoice: inv.ID,
+		Reference: "inv_" + randHex(10), Kind: "invoice", Provider: prov, Address: inv.Merchant, Invoice: inv.ID,
 		Net: inv.Amount, Status: "pending", CreatedAt: g.now(),
 	}
 	g.startCheckout(w, d, req.Email, g.publicURL+"/?invoice="+inv.ID+"&card="+d.Reference)
@@ -361,6 +430,7 @@ type Withdrawal struct {
 	BankName      string        `json:"bank_name"`
 	AccountNumber string        `json:"account_number"`
 	AccountName   string        `json:"account_name"`
+	Provider      string        `json:"provider,omitempty"`
 	// awaiting_burn -> processing -> paid | refunded ; awaiting_burn -> expired
 	Status    string    `json:"status"`
 	BurnTx    string    `json:"burn_tx,omitempty"`
@@ -372,18 +442,33 @@ type Withdrawal struct {
 
 func (w *Withdrawal) Memo() string { return "wd:" + w.ID }
 
-func (g *gateway) listBanks(w http.ResponseWriter, _ *http.Request) {
+func (g *gateway) listBanks(w http.ResponseWriter, r *http.Request) {
+	list, err := g.banks(r.URL.Query().Get("provider"))
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, list)
+}
+
+func (g *gateway) banks(name string) ([]Bank, error) {
+	p, name, err := g.provider(name)
+	if err != nil {
+		return nil, err
+	}
 	g.banksCache.Lock()
 	defer g.banksCache.Unlock()
-	if g.banksCache.list == nil || g.now().Sub(g.banksCache.at) > 24*time.Hour {
-		list, err := g.ps.banks()
-		if err != nil {
-			writeErr(w, http.StatusBadGateway, err)
-			return
-		}
-		g.banksCache.list, g.banksCache.at = list, g.now()
+	if g.banksCache.lists == nil {
+		g.banksCache.lists, g.banksCache.at = map[string][]Bank{}, map[string]time.Time{}
 	}
-	writeJSON(w, http.StatusOK, g.banksCache.list)
+	if g.banksCache.lists[name] == nil || g.now().Sub(g.banksCache.at[name]) > 24*time.Hour {
+		list, err := p.Banks()
+		if err != nil {
+			return nil, err
+		}
+		g.banksCache.lists[name], g.banksCache.at[name] = list, g.now()
+	}
+	return g.banksCache.lists[name], nil
 }
 
 var acctRe = regexp.MustCompile(`^\d{10}$`)
@@ -392,12 +477,18 @@ func (g *gateway) resolveBank(w http.ResponseWriter, r *http.Request) {
 	var req struct {
 		AccountNumber string `json:"account_number"`
 		BankCode      string `json:"bank_code"`
+		Provider      string `json:"provider"`
 	}
 	if err := decodeBody(r, &req); err != nil || !acctRe.MatchString(req.AccountNumber) || req.BankCode == "" {
 		writeErr(w, http.StatusBadRequest, errors.New("enter a 10-digit account number and choose a bank"))
 		return
 	}
-	name, err := g.ps.resolveAccount(req.AccountNumber, req.BankCode)
+	p, _, err := g.provider(req.Provider)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	name, err := p.ResolveAccount(req.AccountNumber, req.BankCode)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, errors.New("could not verify that account"))
 		return
@@ -412,6 +503,7 @@ func (g *gateway) createWithdrawal(w http.ResponseWriter, r *http.Request) {
 		Amount        string `json:"amount"`
 		BankCode      string `json:"bank_code"`
 		AccountNumber string `json:"account_number"`
+		Provider      string `json:"provider"`
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
@@ -426,23 +518,28 @@ func (g *gateway) createWithdrawal(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("account number must be 10 digits"))
 		return
 	}
-	name, err := g.ps.resolveAccount(req.AccountNumber, req.BankCode)
+	p, prov, err := g.provider(req.Provider)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	name, err := p.ResolveAccount(req.AccountNumber, req.BankCode)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, errors.New("could not verify that bank account"))
 		return
 	}
 	bankName := req.BankCode
-	g.banksCache.Lock()
-	for _, b := range g.banksCache.list {
-		if b.Code == req.BankCode {
-			bankName = b.Name
+	if list, err := g.banks(prov); err == nil {
+		for _, b := range list {
+			if b.Code == req.BankCode {
+				bankName = b.Name
+			}
 		}
 	}
-	g.banksCache.Unlock()
 	wd := &Withdrawal{
 		ID: randHex(10), Address: reqauth.Caller(r), Amount: amt, Fee: g.withdrawFee,
 		PayoutKobo: toKobo(amt - g.withdrawFee), BankCode: req.BankCode, BankName: bankName,
-		AccountNumber: req.AccountNumber, AccountName: name, Status: "awaiting_burn",
+		AccountNumber: req.AccountNumber, AccountName: name, Provider: prov, Status: "awaiting_burn",
 		CreatedAt: g.now(), UpdatedAt: g.now(),
 	}
 	if err := g.withdrawals.Update(func(m map[string]*Withdrawal) error { m[wd.ID] = wd; return nil }); err != nil {
@@ -472,11 +569,14 @@ func (g *gateway) listWithdrawals(w http.ResponseWriter, r *http.Request) {
 // matched by memo, asset and exact amount; a burn for an expired quote is
 // still honoured so user funds are never lost.
 func (g *gateway) processWithdrawals() {
-	var todo []Withdrawal
+	var todo, inFlight []Withdrawal
 	g.withdrawals.Read(func(m map[string]*Withdrawal) {
 		for _, wd := range m {
-			if wd.Status == "awaiting_burn" || (wd.Status == "expired" && g.now().Sub(wd.CreatedAt) < 7*24*time.Hour) {
+			switch {
+			case wd.Status == "awaiting_burn" || (wd.Status == "expired" && g.now().Sub(wd.CreatedAt) < 7*24*time.Hour):
 				todo = append(todo, *wd)
+			case wd.Status == "processing" && g.now().Sub(wd.UpdatedAt) > time.Minute:
+				inFlight = append(inFlight, *wd)
 			}
 		}
 	})
@@ -497,29 +597,47 @@ func (g *gateway) processWithdrawals() {
 			}
 			continue
 		}
-		// Mark processing before calling Paystack so a crash can never pay twice;
-		// the transfer reference is the withdrawal id, which Paystack dedupes.
+		// Mark processing before calling the provider so a crash can never pay
+		// twice; the payout reference is the withdrawal id, which providers dedupe.
 		g.setWithdrawal(wd.ID, func(w *Withdrawal) { w.Status, w.BurnTx = "processing", burn })
-		recipient, err := g.ps.createRecipient(wd.AccountName, wd.AccountNumber, wd.BankCode)
-		if err == nil {
-			var st string
-			st, err = g.ps.transfer(wd.PayoutKobo, recipient, wd.ID, "ORPay withdrawal")
-			if err == nil && st == "success" {
-				g.setWithdrawal(wd.ID, func(w *Withdrawal) { w.Status = "paid" })
-			} else if err == nil && st == "otp" {
-				err = errors.New("Paystack requires OTP for transfers; disable it in the dashboard")
-			}
-		}
+		p, _, err := g.provider(orDefault(wd.Provider, "paystack"))
 		if err != nil {
-			log.Printf("withdrawal %s transfer: %v", wd.ID, err)
-			// A timeout may hide a transfer that did go through: only refund
-			// once Paystack confirms there is no live transfer for this id.
-			if st, verr := g.ps.transferStatus(wd.ID); verr == nil && st != "failed" && st != "reversed" {
-				continue // still processing; the transfer webhook settles it
-			}
 			g.refund(wd.ID, err.Error())
+			continue
+		}
+		st, err := p.Payout(wd.PayoutKobo, wd.AccountName, wd.AccountNumber, wd.BankCode, wd.ID, "ORPay withdrawal")
+		switch {
+		case err == nil && st == StatusSuccess:
+			g.setWithdrawal(wd.ID, func(w *Withdrawal) { w.Status = "paid" })
+		case err == nil && st == StatusPending:
+			// settled by webhook or by the in-flight poll below
+		default:
+			log.Printf("withdrawal %s payout: %v", wd.ID, err)
+			g.settleFailedPayout(p, wd.ID, fmt.Sprint(err))
 		}
 	}
+	// Providers without a reachable webhook (e.g. local testing) are polled.
+	for _, wd := range inFlight {
+		p, _, err := g.provider(orDefault(wd.Provider, "paystack"))
+		if err != nil {
+			continue
+		}
+		switch st, err := p.PayoutStatus(wd.ID); {
+		case err == nil && st == StatusSuccess:
+			g.setWithdrawal(wd.ID, func(w *Withdrawal) { w.Status = "paid" })
+		case err == nil && st == StatusFailed:
+			g.refund(wd.ID, "bank transfer failed")
+		}
+	}
+}
+
+// settleFailedPayout refunds only once the provider confirms there is no
+// live payout: a timeout may hide a transfer that did go through.
+func (g *gateway) settleFailedPayout(p Provider, id, reason string) {
+	if st, err := p.PayoutStatus(id); err == nil && st != StatusFailed {
+		return // exists and is pending or paid; the webhook or poll settles it
+	}
+	g.refund(id, reason)
 }
 
 // refund mints the burned NGN back to the user when a payout fails.
@@ -558,31 +676,35 @@ func (g *gateway) setWithdrawal(id string, fn func(*Withdrawal)) {
 
 // ----- webhook, watcher, reserve -----
 
-func (g *gateway) paystackWebhook(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err != nil || !validSignature(g.ps.secret, body, r.Header.Get("x-paystack-signature")) {
-		writeErr(w, http.StatusUnauthorized, errors.New("invalid signature"))
+// webhook receives provider callbacks at /pay/webhooks/{provider}.
+func (g *gateway) webhook(w http.ResponseWriter, r *http.Request) {
+	p := g.providers[r.PathValue("provider")]
+	if p == nil {
+		writeErr(w, http.StatusNotFound, errors.New("unknown provider"))
 		return
 	}
-	var ev struct {
-		Event string `json:"event"`
-		Data  struct {
-			Reference string `json:"reference"`
-		} `json:"data"`
+	body, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
 	}
-	json.Unmarshal(body, &ev)
+	ev, err := p.ParseWebhook(r.Header, body)
+	if err != nil {
+		writeErr(w, http.StatusUnauthorized, err)
+		return
+	}
 	w.WriteHeader(http.StatusOK) // acknowledge fast; work below is idempotent
-	switch ev.Event {
-	case "charge.success":
-		go g.settleDeposit(ev.Data.Reference) // always re-verified with Paystack
-	case "transfer.success":
-		g.setWithdrawal(ev.Data.Reference, func(w *Withdrawal) {
+	switch {
+	case ev.Kind == "collection" && ev.Status == StatusSuccess:
+		go g.settleDeposit(ev.Ref) // always re-verified with the provider
+	case ev.Kind == "payout" && ev.Status == StatusSuccess:
+		g.setWithdrawal(ev.Ref, func(w *Withdrawal) {
 			if w.Status == "processing" {
 				w.Status = "paid"
 			}
 		})
-	case "transfer.failed", "transfer.reversed":
-		go g.refund(ev.Data.Reference, "bank transfer "+strings.TrimPrefix(ev.Event, "transfer."))
+	case ev.Kind == "payout" && ev.Status == StatusFailed:
+		go g.settleFailedPayout(p, ev.Ref, "bank transfer failed")
 	}
 }
 
@@ -617,10 +739,16 @@ func (g *gateway) reserve(w http.ResponseWriter, _ *http.Request) {
 			supply = a.Supply
 		}
 	}
-	bal, err := g.ps.balanceNGN()
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err)
-		return
+	var bal int64
+	balances := map[string]int64{}
+	for name, p := range g.providers {
+		b, err := p.BalanceKobo()
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, fmt.Errorf("%s balance: %w", name, err))
+			return
+		}
+		balances[name] = b
+		bal += b
 	}
 	var owed int64
 	g.withdrawals.Read(func(m map[string]*Withdrawal) {
@@ -636,7 +764,7 @@ func (g *gateway) reserve(w http.ResponseWriter, _ *http.Request) {
 		coverage = float64(available) / float64(supply)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"asset": g.asset, "onchain_supply": supply, "paystack_balance_kobo": bal,
+		"asset": g.asset, "onchain_supply": supply, "provider_balances_kobo": balances, "total_balance_kobo": bal,
 		"payouts_in_flight_kobo": owed, "reserve": available, "coverage": coverage,
 		"fully_backed": available >= supply, "checked_at": g.now(),
 	})
@@ -677,4 +805,11 @@ func randHex(n int) string {
 	b := make([]byte, n)
 	rand.Read(b)
 	return hex.EncodeToString(b)
+}
+
+func orDefault(s, def string) string {
+	if s == "" {
+		return def
+	}
+	return s
 }

@@ -1,7 +1,7 @@
 // Hosted checkout for partner apps: /?invoice=<id>. The customer pays the
 // app's settlement address on-chain from their own wallet; the invoice turns
 // paid once the payment lands, and they get a receipt.
-import { api, feeFor, formatMoney, gateway, send, waitForCommit } from './orp.js'
+import { api, feeFor, formatMoney, gateway, providerLabel, send, waitForCommit } from './orp.js'
 
 let ctx
 
@@ -63,7 +63,7 @@ export async function renderCheckout(id, cardRef) {
       <button class="primary" id="pay">Pay ${money(inv.amount)} from wallet</button>
       ${inv.card_payments ? `<div class="or"><span>or</span></div>
       <label class="card-email">Email for your receipt<input id="card-email" type="email" placeholder="you@example.com"></label>
-      <button class="ghost" id="card">Pay with card, bank or USSD (Paystack)</button>` : ''}`}
+      ${(ctx.state.gateway?.providers?.length ? ctx.state.gateway.providers : ['']).map((p) => `<button class="ghost" data-card="${p}">Pay with card, bank or USSD${p ? ` (${providerLabel(p)})` : ''}</button>`).join('')}` : ''}`}
       <button class="link" id="cancel">Cancel</button>
     </section>`
   ctx.$('#cancel').onclick = () => {
@@ -102,35 +102,36 @@ export async function renderCheckout(id, cardRef) {
       pay.textContent = `Pay ${money(inv.amount)} from wallet`
     }
   }
-  const card = ctx.$('#card')
-  if (card)
+  ctx.root().querySelectorAll('[data-card]').forEach((card) => {
+    const label = card.textContent
     card.onclick = async () => {
       const email = ctx.$('#card-email').value.trim()
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
-        ctx.$('#err').textContent = 'Enter your email for the Paystack receipt.'
+        ctx.$('#err').textContent = 'Enter your email for the payment receipt.'
         return
       }
       card.disabled = true
-      card.textContent = 'Opening Paystack…'
+      card.textContent = 'Opening checkout…'
       try {
-        const r = await gateway.cardPay(inv.id, email)
+        const r = await gateway.cardPay(inv.id, email, card.dataset.card)
         location.assign(r.authorization_url)
       } catch (e) {
         ctx.$('#err').textContent = e.message
         card.disabled = false
-        card.textContent = 'Pay with card, bank or USSD (Paystack)'
+        card.textContent = label
       }
     }
+  })
 }
 
-// Back from Paystack: wait for the gateway to settle the card payment.
+// Back from the provider: wait for the gateway to settle the card payment.
 async function awaitCardPayment(inv) {
   const root = ctx.root()
   root.innerHTML = `
     <section class="card receipt">
       <div class="spinner" aria-hidden="true"></div>
       <h2>Confirming your payment…</h2>
-      <p class="muted" id="msg">Waiting for Paystack to confirm.</p>
+      <p class="muted" id="msg">Waiting for the payment provider to confirm.</p>
     </section>`
   for (let i = 0; i < 60; i++) {
     const latest = await api.invoice(inv.id).catch(() => null)
@@ -138,7 +139,7 @@ async function awaitCardPayment(inv) {
     await new Promise((r) => setTimeout(r, 2000))
   }
   const msg = ctx.$('#msg')
-  if (msg) msg.textContent = 'Still waiting. If you completed payment, the merchant will be notified once Paystack confirms.'
+  if (msg) msg.textContent = 'Still waiting. If you completed payment, the merchant will be notified once it is confirmed.'
 }
 
 function renderReceipt(inv) {

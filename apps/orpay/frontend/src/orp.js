@@ -270,13 +270,15 @@ export function readPayLink(search = location.search) {
 // Paystack gateway: add naira, withdraw to a bank, pay checkouts by card.
 export const gateway = {
   config: () => call('/pay/config'),
-  deposit: (seed, amount, email) => signedCall(seed, 'POST', '/pay/deposits', { amount, email }),
+  deposit: (seed, amount, email, provider) => signedCall(seed, 'POST', '/pay/deposits', { amount, email, provider }),
   deposit_status: (ref) => call(`/pay/deposits/${encodeURIComponent(ref)}`),
-  banks: () => call('/pay/banks'),
-  resolve: (account_number, bank_code) =>
-    call('/pay/banks/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account_number, bank_code }) }),
+  banks: (provider = '') => call(`/pay/banks${provider ? `?provider=${encodeURIComponent(provider)}` : ''}`),
+  resolve: (account_number, bank_code, provider = '') =>
+    call('/pay/banks/resolve', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ account_number, bank_code, provider }) }),
   withdraw: (seed, body) => signedCall(seed, 'POST', '/pay/withdrawals', body),
   withdrawals: (seed) => signedCall(seed, 'GET', '/pay/withdrawals'),
-  cardPay: (invoice, email) =>
-    call(`/pay/invoices/${encodeURIComponent(invoice)}/card`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email }) }),
+  cardPay: (invoice, email, provider = '') =>
+    call(`/pay/invoices/${encodeURIComponent(invoice)}/card`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ email, provider }) }),
 }
+
+export const providerLabel = (p) => ({ paystack: 'Paystack', flutterwave: 'Flutterwave' })[p] ?? p

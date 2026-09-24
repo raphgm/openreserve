@@ -37,7 +37,10 @@ services:
     command: ["-data", "/data", "-node", "http://node:8080", "-backend", "http://orpay-backend:4000",
               "-public-url", "https://${DOMAIN}", "-trust-proxy"]
     environment:
-      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:?set PAYSTACK_SECRET_KEY in deploy/.env}
+      # Configure one or both providers.
+      PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}
+      FLW_SECRET_KEY: ${FLW_SECRET_KEY:-}
+      FLW_SECRET_HASH: ${FLW_SECRET_HASH:-}
       ORP_ISSUER_SEED: ${ORP_ISSUER_SEED:?set ORP_ISSUER_SEED in deploy/.env}
     volumes:
       - gateway-data:/data

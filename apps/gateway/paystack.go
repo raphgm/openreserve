@@ -11,6 +11,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 	"time"
 )
 
@@ -183,4 +184,101 @@ func grossUp(net int64) int64 {
 		gross = net + 200_000
 	}
 	return gross
+}
+
+// ----- Provider implementation -----
+
+func (p *paystack) Name() string            { return "paystack" }
+func (p *paystack) TestMode() bool          { return strings.HasPrefix(p.secret, "sk_test_") }
+func (p *paystack) GrossUp(net int64) int64 { return grossUp(net) }
+
+func (p *paystack) StartCollection(email string, kobo int64, ref, callbackURL string, meta map[string]string) (string, error) {
+	init, err := p.initialize(email, kobo, ref, callbackURL, meta)
+	return init.AuthorizationURL, err
+}
+
+func (p *paystack) VerifyCollection(ref string) (Collection, error) {
+	tx, err := p.verify(ref)
+	if err != nil {
+		return Collection{}, err
+	}
+	c := Collection{Ref: tx.Reference, GrossKobo: tx.Amount, FeeKobo: tx.Fees, Currency: tx.Currency, Status: StatusPending}
+	switch tx.Status {
+	case "success":
+		c.Status = StatusSuccess
+	case "failed", "reversed", "abandoned":
+		c.Status = StatusFailed
+	}
+	return c, nil
+}
+
+func (p *paystack) Banks() ([]Bank, error) {
+	list, err := p.banks()
+	out := make([]Bank, len(list))
+	for i, b := range list {
+		out[i] = Bank(b)
+	}
+	return out, err
+}
+
+func (p *paystack) ResolveAccount(acct, bank string) (string, error) {
+	return p.resolveAccount(acct, bank)
+}
+
+func (p *paystack) Payout(kobo int64, name, acct, bank, ref, reason string) (Status, error) {
+	recipient, err := p.createRecipient(name, acct, bank)
+	if err != nil {
+		return StatusFailed, err
+	}
+	st, err := p.transfer(kobo, recipient, ref, reason)
+	switch {
+	case err != nil:
+		return StatusFailed, err
+	case st == "success":
+		return StatusSuccess, nil
+	case st == "otp":
+		return StatusFailed, errors.New("Paystack requires OTP for transfers; disable it in the dashboard")
+	}
+	return StatusPending, nil
+}
+
+func (p *paystack) PayoutStatus(ref string) (Status, error) {
+	st, err := p.transferStatus(ref)
+	if err != nil {
+		return "", err
+	}
+	switch st {
+	case "success":
+		return StatusSuccess, nil
+	case "failed", "reversed":
+		return StatusFailed, nil
+	}
+	return StatusPending, nil
+}
+
+func (p *paystack) BalanceKobo() (int64, error) { return p.balanceNGN() }
+
+func (p *paystack) ParseWebhook(h http.Header, body []byte) (WebhookEvent, error) {
+	if !validSignature(p.secret, body, h.Get("x-paystack-signature")) {
+		return WebhookEvent{}, errors.New("invalid signature")
+	}
+	var ev struct {
+		Event string `json:"event"`
+		Data  struct {
+			Reference string `json:"reference"`
+		} `json:"data"`
+	}
+	if err := json.Unmarshal(body, &ev); err != nil {
+		return WebhookEvent{}, err
+	}
+	out := WebhookEvent{Ref: ev.Data.Reference}
+	switch ev.Event {
+	case "charge.success":
+		out.Kind, out.Status = "collection", StatusSuccess
+	case "transfer.success":
+		out.Kind, out.Status = "payout", StatusSuccess
+	case "transfer.failed", "transfer.reversed":
+		out.Kind, out.Status = "payout", StatusFailed
+	}
+	return out, nil
 }

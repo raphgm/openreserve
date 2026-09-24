@@ -1,7 +1,8 @@
-// Cash in and out through Paystack. Add money: pay with card, bank transfer
-// or USSD on Paystack; naira arrives in the wallet as NGN once Paystack
-// confirms. Withdraw: NGN is destroyed on-chain and Paystack pays the bank.
-import { formatMoney, gateway, parseAmount, send, waitForCommit } from './orp.js'
+// Cash in and out through the gateway's money providers (Paystack,
+// Flutterwave, ...). Add money: pay by card, bank transfer or USSD; naira
+// arrives as NGN once the provider confirms. Withdraw: NGN is destroyed
+// on-chain and the provider pays the bank.
+import { formatMoney, gateway, parseAmount, providerLabel, send, waitForCommit } from './orp.js'
 
 let ctx
 
@@ -18,6 +19,25 @@ const savedEmail = () => {
   }
 }
 
+// A segmented picker when the network offers more than one money provider.
+function providerPicker(onChange) {
+  const list = ctx.state.gateway?.providers ?? []
+  let current = ctx.state.gateway?.default_provider ?? list[0] ?? ''
+  const html = list.length > 1
+    ? `<div class="seg" role="radiogroup" aria-label="Payment provider">${list.map((p) => `<button type="button" role="radio" data-prov="${p}">${providerLabel(p)}</button>`).join('')}</div>`
+    : ''
+  const bind = () => {
+    const set = (p) => {
+      current = p
+      ctx.root().querySelectorAll('[data-prov]').forEach((b) => b.setAttribute('aria-checked', b.dataset.prov === p))
+      onChange?.(p)
+    }
+    ctx.root().querySelectorAll('[data-prov]').forEach((b) => (b.onclick = () => set(b.dataset.prov)))
+    set(current)
+  }
+  return { html, bind, get: () => current }
+}
+
 function nairaAmount(v) {
   const amt = parseAmount(v.replace(/,/g, ''))
   if (amt % 10_000n !== 0n) throw new Error('Naira amounts can have at most 2 decimals.')
@@ -26,22 +46,25 @@ function nairaAmount(v) {
 
 export function renderAddMoney() {
   const root = ctx.root()
+  const prov = providerPicker()
   root.innerHTML = `
     <section class="card">
       <button class="link back" id="back">← Home</button>
       <h2>Add money</h2>
-      <p class="muted small-text">Pay with card, bank transfer or USSD through Paystack. The naira arrives in your wallet as soon as Paystack confirms it.</p>
+      <p class="muted small-text">Pay with card, bank transfer or USSD. The naira arrives in your wallet as soon as the payment is confirmed.</p>
       <form id="f" class="stack" autocomplete="off">
+        ${prov.html}
         <label>Amount (₦)<input id="amount" inputmode="decimal" placeholder="5,000" required></label>
         <div class="quick">${['1000', '5000', '10000', '50000'].map((a) => `<button type="button" class="ghost small" data-q="${a}">₦${Number(a).toLocaleString()}</button>`).join('')}</div>
         <label>Email for your receipt<input id="email" type="email" value="${ctx.esc(savedEmail())}" required></label>
-        <p class="hint">Paystack's processing fee is added at checkout, so the full amount reaches your wallet.</p>
-        ${ctx.state.gateway?.test_mode ? '<p class="banner warn">Test mode: use Paystack test cards. No real money moves.</p>' : ''}
+        <p class="hint">The provider's processing fee is added at checkout, so the full amount reaches your wallet.</p>
+        ${ctx.state.gateway?.test_mode ? '<p class="banner warn">Test mode: use the provider\'s test cards. No real money moves.</p>' : ''}
         <p class="error" id="err"></p>
-        <button class="primary" id="go">Continue to Paystack</button>
+        <button class="primary" id="go">Continue</button>
       </form>
     </section>`
   ctx.$('#back').onclick = ctx.home
+  prov.bind()
   root.querySelectorAll('[data-q]').forEach((b) => (b.onclick = () => (ctx.$('#amount').value = b.dataset.q)))
   ctx.$('#f').onsubmit = async (e) => {
     e.preventDefault()
@@ -55,27 +78,27 @@ export function renderAddMoney() {
         localStorage.setItem(EMAIL_KEY, email)
       } catch {}
       btn.disabled = true
-      btn.textContent = 'Opening Paystack…'
+      btn.textContent = `Opening ${providerLabel(prov.get())}…`
       const res = await ctx.gatewayCall(() =>
-        gateway.deposit(ctx.state.seed, (Number(amount / 10_000n) / 100).toFixed(2), email),
+        gateway.deposit(ctx.state.seed, (Number(amount / 10_000n) / 100).toFixed(2), email, prov.get()),
       )
       location.assign(res.authorization_url)
     } catch (e2) {
       err.textContent = e2.message
       btn.disabled = false
-      btn.textContent = 'Continue to Paystack'
+      btn.textContent = 'Continue'
     }
   }
 }
 
-// Called when Paystack redirects back with ?deposit=<ref>.
+// Called when the provider redirects back with ?deposit=<ref>.
 export async function confirmDeposit(ref) {
   const root = ctx.root()
   root.innerHTML = `
     <section class="card receipt">
       <div class="spinner" aria-hidden="true"></div>
       <h2>Confirming your payment…</h2>
-      <p class="muted" id="msg">Waiting for Paystack. This usually takes a few seconds.</p>
+      <p class="muted" id="msg">Waiting for the payment provider. This usually takes a few seconds.</p>
     </section>`
   for (let i = 0; i < 60; i++) {
     let d
@@ -103,11 +126,12 @@ export async function confirmDeposit(ref) {
     await new Promise((r) => setTimeout(r, 2000))
   }
   const msg = ctx.$('#msg')
-  if (msg) msg.textContent = "Still waiting for Paystack. You can leave this page; the money will appear in your wallet once it's confirmed."
+  if (msg) msg.textContent = "Still waiting for confirmation. You can leave this page; the money will appear in your wallet once it's confirmed."
 }
 
 export async function renderWithdraw() {
   const root = ctx.root()
+  const prov = providerPicker((p) => loadBanks(p))
   const bal = BigInt(ctx.state.account?.assets?.NGN ?? 0)
   const fee = BigInt(ctx.state.gateway?.withdraw_fee ?? 0)
   root.innerHTML = `
@@ -116,6 +140,7 @@ export async function renderWithdraw() {
       <h2>Withdraw to bank</h2>
       <p class="muted small-text">Available: ${formatMoney(bal, 'NGN')}. A ${formatMoney(fee, 'NGN')} transfer fee is deducted.</p>
       <form id="f" class="stack" autocomplete="off">
+        ${prov.html}
         <label>Amount (₦)<input id="amount" inputmode="decimal" required></label>
         <label>Bank<select id="bank" required><option value="">Loading banks…</option></select></label>
         <label>Account number<input id="acct" inputmode="numeric" maxlength="10" pattern="\\d{10}" required></label>
@@ -128,13 +153,20 @@ export async function renderWithdraw() {
     </section>`
   ctx.$('#back').onclick = ctx.home
   loadWithdrawals()
-  try {
-    const banks = await gateway.banks()
-    ctx.$('#bank').innerHTML =
-      '<option value="">Choose your bank</option>' + banks.map((b) => `<option value="${ctx.esc(b.code)}">${ctx.esc(b.name)}</option>`).join('')
-  } catch (e) {
-    ctx.$('#err').textContent = e.message
+  async function loadBanks(p) {
+    const sel = ctx.$('#bank')
+    if (!sel) return
+    sel.innerHTML = '<option value="">Loading banks…</option>'
+    try {
+      const banks = await gateway.banks(p)
+      sel.innerHTML =
+        '<option value="">Choose your bank</option>' + banks.map((b) => `<option value="${ctx.esc(b.code)}">${ctx.esc(b.name)}</option>`).join('')
+    } catch (e) {
+      ctx.$('#err').textContent = e.message
+    }
+    ctx.$('#name').textContent = ''
   }
+  prov.bind()
   let resolved = ''
   const lookup = async () => {
     resolved = ''
@@ -145,7 +177,7 @@ export async function renderWithdraw() {
     if (!/^\d{10}$/.test(acct) || !bank) return
     ctx.$('#name').textContent = 'Checking account…'
     try {
-      const r = await gateway.resolve(acct, bank)
+      const r = await gateway.resolve(acct, bank, prov.get())
       resolved = r.account_name
       ctx.$('#name').innerHTML = `Account name: <strong>${ctx.esc(resolved)}</strong>`
       ctx.$('#go').disabled = false
@@ -172,6 +204,7 @@ export async function renderWithdraw() {
         amount: (Number(amount / 10_000n) / 100).toFixed(2),
         bank_code: ctx.$('#bank').value,
         account_number: ctx.$('#acct').value.trim(),
+        provider: prov.get(),
       })
       btn.textContent = 'Confirming…'
       // Destroy the naira on-chain; the gateway pays the bank once it sees this.

@@ -160,7 +160,8 @@ func newEnv(t *testing.T, backend string) *env {
 	t.Cleanup(pss.Close)
 	e.g, err = newGateway(config{
 		dataDir: t.TempDir(), node: client.New(node.URL), backend: backend, publicURL: "https://pay.test",
-		ps: newPaystack(pss.URL, secret), issuer: issuer, asset: "NGN", withdrawFee: 50 * types.Unit,
+		providers: map[string]Provider{"paystack": newPaystack(pss.URL, secret)}, defaultProvider: "paystack",
+		issuer: issuer, asset: "NGN", withdrawFee: 50 * types.Unit,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -434,5 +435,143 @@ func TestGrossUp(t *testing.T) {
 		if gross-fee < net {
 			t.Errorf("net %d: gross %d leaves %d after fee %d", net, gross, gross-fee, fee)
 		}
+	}
+}
+
+// fakeFlutterwave mimics the parts of the Flutterwave v3 API the adapter uses.
+type fakeFlutterwave struct {
+	mu        sync.Mutex
+	txs       map[string]map[string]any
+	transfers map[string]string
+	balance   float64
+}
+
+func (f *fakeFlutterwave) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	if r.Header.Get("Authorization") != "Bearer FLWSECK_TEST-fake" {
+		w.WriteHeader(401)
+		json.NewEncoder(w).Encode(map[string]any{"status": "error", "message": "Invalid authorization key"})
+		return
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	ok := func(data any) {
+		json.NewEncoder(w).Encode(map[string]any{"status": "success", "message": "ok", "data": data})
+	}
+	fail := func(msg string) {
+		w.WriteHeader(400)
+		json.NewEncoder(w).Encode(map[string]any{"status": "error", "message": msg})
+	}
+	var body map[string]any
+	json.NewDecoder(r.Body).Decode(&body)
+	switch p := r.URL.Path; {
+	case p == "/payments":
+		ref := body["tx_ref"].(string)
+		f.txs[ref] = map[string]any{"status": "pending", "tx_ref": ref, "amount": body["amount"], "app_fee": 0.0, "currency": "NGN"}
+		ok(map[string]string{"link": "https://checkout.flutterwave.test/" + ref})
+	case p == "/transactions/verify_by_reference":
+		tx := f.txs[r.URL.Query().Get("tx_ref")]
+		if tx == nil {
+			fail("No transaction was found for this id")
+			return
+		}
+		ok(tx)
+	case p == "/banks/NG":
+		ok([]Bank{{Name: "Kuda Bank", Code: "50211"}})
+	case p == "/accounts/resolve":
+		ok(map[string]string{"account_name": "TUNDE ADE"})
+	case p == "/transfers" && r.Method == "POST":
+		f.transfers[body["reference"].(string)] = "NEW" // Flutterwave settles transfers asynchronously
+		f.balance -= body["amount"].(float64)
+		ok(map[string]string{"status": "NEW"})
+	case p == "/transfers":
+		st, found := f.transfers[r.URL.Query().Get("reference")]
+		if !found {
+			ok([]any{})
+			return
+		}
+		ok([]map[string]string{{"status": st}})
+	case p == "/balances/NGN":
+		ok(map[string]float64{"available_balance": f.balance})
+	default:
+		fail("not found " + p)
+	}
+}
+
+func TestFlutterwaveProvider(t *testing.T) {
+	e := newEnv(t, "")
+	fw := &fakeFlutterwave{txs: map[string]map[string]any{}, transfers: map[string]string{}}
+	fws := httptest.NewServer(fw)
+	defer fws.Close()
+	e.g.providers["flutterwave"] = newFlutterwave(fws.URL, "FLWSECK_TEST-fake", "hash123")
+	_, user, _ := ed25519.GenerateKey(nil)
+
+	var cfg struct {
+		Providers []string `json:"providers"`
+	}
+	e.call("GET", "/pay/config", nil, nil, &cfg)
+	if len(cfg.Providers) != 2 {
+		t.Fatalf("providers: %v", cfg.Providers)
+	}
+
+	// Deposit through Flutterwave.
+	var dep struct {
+		Reference string `json:"reference"`
+		Provider  string `json:"provider"`
+		ChargeKb  int64  `json:"charge_kobo"`
+	}
+	if code := e.call("POST", "/pay/deposits", map[string]string{"amount": "8000", "email": "t@example.com", "provider": "flutterwave"}, user, &dep); code != 201 || dep.Provider != "flutterwave" {
+		t.Fatalf("deposit: %d %+v", code, dep)
+	}
+	fee := float64(dep.ChargeKb-800_000) / 100
+	fw.mu.Lock()
+	fw.txs[dep.Reference]["status"], fw.txs[dep.Reference]["app_fee"] = "successful", fee
+	fw.balance += float64(dep.ChargeKb)/100 - fee
+	fw.mu.Unlock()
+
+	// Webhooks need the dashboard secret hash; a wrong one is refused.
+	post := func(hash string, body map[string]any) int {
+		b, _ := json.Marshal(body)
+		req, _ := http.NewRequest("POST", e.srv.URL+"/pay/webhooks/flutterwave", bytes.NewReader(b))
+		req.Header.Set("verif-hash", hash)
+		resp, _ := http.DefaultClient.Do(req)
+		resp.Body.Close()
+		return resp.StatusCode
+	}
+	ev := map[string]any{"event": "charge.completed", "data": map[string]any{"tx_ref": dep.Reference, "status": "successful"}}
+	if code := post("wrong", ev); code != 401 {
+		t.Errorf("bad verif-hash: %d", code)
+	}
+	post("hash123", ev)
+	e.eventually("flutterwave mint", func() bool { return e.ngn(keys.Address(user)) == 8000*types.Unit })
+
+	// Withdraw through Flutterwave: payout is asynchronous, settled by webhook.
+	var res struct {
+		Withdrawal Withdrawal `json:"withdrawal"`
+	}
+	if code := e.call("POST", "/pay/withdrawals", map[string]string{"amount": "3000", "bank_code": "50211", "account_number": "0123456789", "provider": "flutterwave"}, user, &res); code != 201 {
+		t.Fatalf("withdrawal: %d", code)
+	}
+	if res.Withdrawal.AccountName != "TUNDE ADE" || res.Withdrawal.BankName != "Kuda Bank" {
+		t.Errorf("quote: %+v", res.Withdrawal)
+	}
+	burn(t, e, user, 3000*types.Unit, res.Withdrawal.Memo())
+	e.g.processWithdrawals()
+	var list []Withdrawal
+	e.call("GET", "/pay/withdrawals", nil, user, &list)
+	if list[0].Status != "processing" {
+		t.Fatalf("after payout request: %s", list[0].Status)
+	}
+	post("hash123", map[string]any{"event": "transfer.completed", "data": map[string]any{"reference": res.Withdrawal.ID, "status": "SUCCESSFUL"}})
+	e.eventually("payout settled", func() bool {
+		var l []Withdrawal
+		e.call("GET", "/pay/withdrawals", nil, user, &l)
+		return l[0].Status == "paid"
+	})
+
+	// Reserve sums every provider.
+	var reserve map[string]any
+	e.call("GET", "/pay/reserve", nil, nil, &reserve)
+	if reserve["fully_backed"] != true || len(reserve["provider_balances_kobo"].(map[string]any)) != 2 {
+		t.Errorf("reserve: %v", reserve)
 	}
 }

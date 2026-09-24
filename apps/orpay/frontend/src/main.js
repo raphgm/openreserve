@@ -328,7 +328,7 @@ function renderHeader() {
   $('#net').innerHTML = net
 }
 
-// The currencies this wallet can hold: naira first when the Paystack
+// The currencies this wallet can hold: naira first when the naira
 // gateway runs, then ORP.
 function currencies() {
   const list = []
@@ -635,7 +635,7 @@ function cashActivity(e) {
   return `
     <li>
       <span class="icon ${mint ? 'in' : 'out'}" aria-hidden="true">${mint ? '＋' : '↗'}</span>
-      <span class="who"><strong>${text}</strong><small>${when} · via Paystack</small></span>
+      <span class="who"><strong>${text}</strong><small>${when} · bank or card</small></span>
       <span class="amt ${mint ? 'in' : 'out'}">${mint ? '+' : '−'}${esc(formatMoney(e.tx.amount, e.tx.asset ?? ''))}</span>
     </li>`
 }

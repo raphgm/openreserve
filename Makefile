@@ -43,10 +43,11 @@ orpay-backend:
 		$$(grep -q '"assets"' ../../../devnet/genesis.json && echo -default-currency NGN -card-payments) \
 		$${ORPAY_ADMINS:+-admins $$ORPAY_ADMINS} -allow-private-webhooks
 
-# Paystack naira gateway. Put PAYSTACK_SECRET_KEY=sk_test_... in devnet/paystack.env
-# (chmod 600, never committed). Test keys move no real money.
+# Naira gateway. Put provider keys in devnet/paystack.env (chmod 600, never
+# committed): PAYSTACK_SECRET_KEY=sk_test_... and/or FLW_SECRET_KEY=FLWSECK_TEST-...
+# with FLW_SECRET_HASH=<your dashboard secret hash>. Test keys move no real money.
 gateway:
-	@test -f devnet/paystack.env || (echo "create devnet/paystack.env with PAYSTACK_SECRET_KEY=sk_test_..." && exit 1)
+	@test -f devnet/paystack.env || (echo "create devnet/paystack.env with PAYSTACK_SECRET_KEY=sk_test_... and/or FLW_SECRET_KEY=..." && exit 1)
 	@test -f devnet/issuer.json || (echo "this devnet has no NGN issuer; run: rm -rf devnet && make devnet-init" && exit 1)
 	@chmod 600 devnet/paystack.env devnet/issuer.json
 	cd apps/gateway && set -a && . ../../devnet/paystack.env && set +a && \

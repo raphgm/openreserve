@@ -368,3 +368,35 @@ h2.spaced { margin-top: 24px; }
   border: 4px solid var(--out-bg); border-top-color: var(--brand-1); animation: spin 1s linear infinite;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* Escrow */
+.escrow-avatar { background: linear-gradient(135deg, #0f766e, #4f46e5); font-size: 1.1rem; }
+.escrow-hero {
+  position: relative; overflow: hidden; border: none; color: #fff;
+  background: linear-gradient(135deg, #1e3a8a 0%, #4f46e5 55%, #0891b2 100%);
+  box-shadow: 0 20px 40px -12px rgb(30 58 138 / .45);
+}
+.escrow-hero .label { color: rgb(255 255 255 / .75); }
+.escrow-hero .pool-stats strong { font-size: .85rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.escrow-hero .pool-stats .mono { color: #fff; }
+.steps { list-style: none; margin: 8px 0 0; padding: 0; display: flex; flex-direction: column; gap: 4px; }
+.step { display: flex; align-items: center; gap: 12px; padding: 12px; border-radius: 16px; background: var(--surface-2); }
+.step .who { gap: 2px; }
+.step small { white-space: normal; }
+.step-dot {
+  width: 34px; height: 34px; flex: none; border-radius: 50%; display: grid; place-items: center;
+  font-size: .85rem; font-weight: 800; background: var(--surface); color: var(--muted); border: 1.5px solid var(--border);
+}
+.step.done .step-dot { background: var(--in-bg); color: var(--in); border-color: transparent; }
+.step.active { background: var(--out-bg); }
+.step.active .step-dot { background: var(--brand-grad); color: #fff; border-color: transparent; }
+.step.locked { opacity: .65; }
+.step-tag { font-size: .72rem; font-weight: 600; color: var(--muted); white-space: nowrap; }
+.step.done .step-tag { color: var(--in); }
+.step.active .step-tag { color: var(--brand-1); }
+.milestones { list-style: none; margin: 8px 0 0; padding: 0; }
+.milestones li { display: grid; grid-template-columns: 1fr auto auto; gap: 12px; align-items: center; padding: 10px 0; border-top: 1px solid var(--border); }
+.milestones li:first-child { border-top: none; }
+.timeline .ev-release .ev-dot, .timeline .ev-claim .ev-dot { border-color: var(--in); background: var(--in); }
+.timeline .ev-dispute .ev-dot { border-color: var(--danger); }
+.pool-stats strong span { text-transform: none; letter-spacing: 0; font-size: inherit; color: inherit; font-weight: 600; }

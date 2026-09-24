@@ -79,7 +79,7 @@ class Encoder {
 // fields appended (see node/types.Tx.SignBytes).
 export function txSignBytes(tx) {
   const e = new Encoder()
-  e.str(tx.pool || tx.kind || tx.asset ? 'openreserve/tx/v2' : 'openreserve/tx/v1')
+  e.str(tx.pool || tx.kind || tx.asset || tx.escrow ? 'openreserve/tx/v2' : 'openreserve/tx/v1')
   e.str(tx.chain_id)
   e.str(tx.from)
   e.str(tx.to ?? '')
@@ -87,7 +87,7 @@ export function txSignBytes(tx) {
   e.u64(tx.fee)
   e.u64(tx.nonce)
   e.str(tx.memo ?? '')
-  const v2 = tx.pool || tx.kind || tx.asset
+  const v2 = tx.pool || tx.kind || tx.asset || tx.escrow
   if (!v2) return e.bytes()
   e.str(tx.kind ?? '')
   e.str(tx.asset ?? '')
@@ -103,6 +103,21 @@ export function txSignBytes(tx) {
     e.u64(p.contribution ?? 0)
   } else {
     e.parts.push(new Uint8Array([0]))
+  }
+  if (tx.escrow) {
+    const x = tx.escrow
+    e.parts.push(new Uint8Array([2]))
+    e.str(x.op)
+    e.parts.push(x.id ? fromHex(x.id) : new Uint8Array(32))
+    e.str(x.seller ?? '')
+    e.str(x.arbiter ?? '')
+    const ms = x.milestones ?? []
+    e.u64(ms.length)
+    for (const m of ms) e.u64(m)
+    e.u64(x.ship_by ?? 0)
+    e.u64(x.review_secs ?? 0)
+    e.str(x.ref ?? '')
+    e.u64(x.to_seller ?? 0)
   }
   return e.bytes()
 }
@@ -141,12 +156,21 @@ export const node = {
   history: (addr) => call(`/v1/accounts/${addr}/txs?limit=100`),
   tx: (id) => call(`/v1/txs/${id}`),
   pool: (id) => call(`/v1/pools/${id}`),
+  escrow: (id) => call(`/v1/escrows/${id}`),
+  escrows: (addr) => call(`/v1/accounts/${addr}/escrows`),
   pools: (addr) => call(`/v1/accounts/${addr}/pools`),
   submit: (tx) => {
     const body = { ...tx, amount: Number(tx.amount), fee: Number(tx.fee) }
     if (!body.kind) delete body.kind
     if (!body.asset) delete body.asset
-    if (tx.pool || tx.kind === 'burn') if (!body.to) delete body.to
+    if (tx.pool || tx.escrow || tx.kind === 'burn') if (!body.to) delete body.to
+    if (tx.escrow) {
+      const x = { ...tx.escrow }
+      if (x.milestones) x.milestones = x.milestones.map(Number)
+      if (x.to_seller != null) x.to_seller = Number(x.to_seller)
+      for (const k of Object.keys(x)) if (x[k] == null || x[k] === '' || x[k] === 0 || x[k] === 0n) delete x[k]
+      body.escrow = x
+    }
     if (tx.pool) {
       body.pool = { ...tx.pool }
       if (body.pool.contribution != null) body.pool.contribution = Number(body.pool.contribution)
@@ -155,6 +179,22 @@ export const node = {
     }
     return call('/v1/txs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
   },
+}
+
+// Sign and submit an escrow operation. For "create" the returned tx id is
+// also the new escrow's id. Steps after create carry no fee.
+export async function escrowOp({ seed, op, id, seller, arbiter, milestones, shipBy, reviewSecs, ref, toSeller, memo = '', asset = '' }) {
+  const from = await addressOf(seed)
+  const [st, acc] = await Promise.all([node.status(), node.account(from)])
+  const escrow = { op }
+  if (id) escrow.id = id
+  if (op === 'create') Object.assign(escrow, { seller, arbiter, milestones: milestones.map(BigInt), ship_by: shipBy, review_secs: reviewSecs, ref: ref ?? '' })
+  if (op === 'resolve') escrow.to_seller = BigInt(toSeller ?? 0)
+  const tx = await signTx(
+    { chain_id: st.chain_id, from, to: '', amount: 0n, fee: op === 'create' ? feeFor(st, asset) : 0n, nonce: acc.next_nonce, memo, escrow, ...(asset ? { asset } : {}) },
+    seed,
+  )
+  return (await node.submit(tx)).id
 }
 
 // Sign and submit a savings-pool operation. For "create" the returned tx id

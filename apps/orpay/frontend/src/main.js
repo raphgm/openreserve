@@ -8,6 +8,7 @@ import { initPools, renderPool, renderPools } from './pools.js'
 import { initCheckout, renderCheckout } from './checkout.js'
 import { initDevelopers, renderDevelopers } from './developers.js'
 import { confirmDeposit, initMoney, renderAddMoney, renderWithdraw } from './money.js'
+import { initEscrow, renderEscrow, renderEscrows } from './escrow.js'
 import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './vault.js'
 
 const app = document.getElementById('app')
@@ -38,6 +39,8 @@ const PENDING = 'orpay.pending'
     ? { invoice: q.get('invoice'), card: q.get('card') }
     : q.get('pool')
       ? { pool: q.get('pool') }
+      : q.get('escrow')
+      ? { escrow: q.get('escrow') }
       : readPayLink()
   if (req) {
     sessionStorage.setItem(PENDING, JSON.stringify(req))
@@ -199,6 +202,7 @@ async function openWallet(seed, address) {
       if (req.deposit) showView('money', () => confirmDeposit(req.deposit))
       else if (req.invoice) showView('checkout', () => renderCheckout(req.invoice, req.card))
       else if (req.pool) showView('pools', () => renderPool(req.pool))
+      else if (req.escrow) showView('escrow', () => renderEscrow(req.escrow))
       else renderSend(req)
     } catch {}
   }
@@ -214,7 +218,7 @@ function showView(view, render) {
     bindHome()
     return
   }
-  ;(render ?? { pools: renderPools, developers: renderDevelopers }[view])()
+  ;(render ?? { pools: renderPools, escrow: renderEscrows, developers: renderDevelopers }[view])()
 }
 
 function homeHTML() {
@@ -300,6 +304,7 @@ function renderWallet() {
     <nav class="tabbar" aria-label="Main">
       <button data-view="home"><span class="ti">⌂</span>Home</button>
       <button data-view="pools"><span class="ti">◎</span>Pools</button>
+      <button data-view="escrow"><span class="ti">⛨</span>Escrow</button>
       <button data-view="developers"><span class="ti">⌘</span>Developers</button>
     </nav>`
   app.querySelectorAll('[data-view]').forEach((b) => (b.onclick = () => showView(b.dataset.view)))
@@ -608,6 +613,7 @@ function renderActivity() {
   ul.innerHTML = state.history
     .map((e) => {
       if (e.tx.pool) return poolActivity(e)
+      if (e.tx.escrow) return escrowActivity(e)
       if (e.tx.kind === 'mint' || e.tx.kind === 'burn') return cashActivity(e)
       const out = e.tx.from === state.address
       const other = out ? e.tx.to : e.tx.from
@@ -625,6 +631,7 @@ function renderActivity() {
     })
     .join('')
   ul.querySelectorAll('[data-pool]').forEach((li) => (li.onclick = () => showView('pools', () => renderPool(li.dataset.pool))))
+  ul.querySelectorAll('[data-escrow]').forEach((li) => (li.onclick = () => showView('escrow', () => renderEscrow(li.dataset.escrow))))
 }
 
 function cashActivity(e) {
@@ -637,6 +644,28 @@ function cashActivity(e) {
       <span class="icon ${mint ? 'in' : 'out'}" aria-hidden="true">${mint ? '＋' : '↗'}</span>
       <span class="who"><strong>${text}</strong><small>${when} · bank or card</small></span>
       <span class="amt ${mint ? 'in' : 'out'}">${mint ? '+' : '−'}${esc(formatMoney(e.tx.amount, e.tx.asset ?? ''))}</span>
+    </li>`
+}
+
+function escrowActivity(e) {
+  const when = new Date(e.time).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const x = e.tx.escrow
+  const mine = e.tx.from === state.address
+  const text = {
+    create: mine ? 'Locked funds in escrow' : 'Escrow opened with you',
+    dispatch: mine ? 'Marked escrow dispatched' : 'Seller dispatched',
+    release: mine ? 'Released an escrow milestone' : 'Escrow milestone released',
+    dispute: 'Escrow dispute opened',
+    resolve: 'Escrow dispute resolved',
+    refund: 'Escrow refunded',
+    claim: 'Escrow claimed by seller',
+  }[x.op]
+  const id = x.op === 'create' ? e.id : x.id
+  return `
+    <li class="clickable" data-escrow="${id}">
+      <span class="icon pool" aria-hidden="true">⛨</span>
+      <span class="who"><strong>${text}</strong><small>${when}${x.ref ? ` · #${esc(x.ref)}` : ''} · tap to view</small></span>
+      <span class="amt"></span>
     </li>`
 }
 
@@ -687,6 +716,7 @@ initPools(ctx)
 initCheckout(ctx)
 initDevelopers(ctx)
 initMoney(ctx)
+initEscrow(ctx)
 
 function renderGuestCheckout(invoice) {
   app.innerHTML = `

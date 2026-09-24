@@ -9,6 +9,7 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"strconv"
 	"strings"
 )
@@ -73,9 +74,12 @@ func ParseHash(s string) (Hash, error) {
 	return h, err
 }
 
-// Tx is either a transfer of Amount from From to To, or, when Pool is set,
-// a savings-pool operation. Fee is burned. Nonce must equal the sender's
-// current nonce, which prevents replay and orders a sender's txs.
+// Tx is a transfer of Amount from From to To, a mint or burn of an issued
+// asset (Kind), or, when Pool is set, a savings-pool operation. Asset is ""
+// for the native ORP or the symbol of an issued asset such as "NGN". Fees
+// are paid in the tx's asset: ORP fees are burned, issued-asset fees go to
+// the asset's issuer. Nonce must equal the sender's current nonce, which
+// prevents replay and orders a sender's txs.
 type Tx struct {
 	ChainID string   `json:"chain_id"`
 	From    Address  `json:"from"`
@@ -84,8 +88,32 @@ type Tx struct {
 	Fee     Amount   `json:"fee"`
 	Nonce   uint64   `json:"nonce"`
 	Memo    string   `json:"memo,omitempty"`
+	Kind    string   `json:"kind,omitempty"`  // "", KindMint or KindBurn
+	Asset   string   `json:"asset,omitempty"` // "" = ORP
 	Pool    *PoolOp  `json:"pool,omitempty"`
 	Sig     HexBytes `json:"sig"`
+}
+
+// Tx kinds for issued assets. A mint creates units of an asset and may only
+// be sent by that asset's issuer (e.g. the Paystack gateway, after naira is
+// received). A burn destroys the sender's own units (e.g. a withdrawal to a
+// bank account, paid out by the issuer).
+const (
+	KindMint = "mint"
+	KindBurn = "burn"
+)
+
+var assetRe = regexp.MustCompile(`^[A-Z]{2,10}$`)
+
+// ValidAsset reports whether s is "" (ORP) or a well-formed asset symbol.
+func ValidAsset(s string) bool { return s == "" || (s != "ORP" && assetRe.MatchString(s)) }
+
+// AssetName is the display symbol for an asset field.
+func AssetName(s string) string {
+	if s == "" {
+		return "ORP"
+	}
+	return s
 }
 
 // Pool operations. A savings pool (ajo/esusu) has a fixed member order and
@@ -138,13 +166,14 @@ func (e *encoder) raw(b []byte) { e.buf = append(e.buf, b...) }
 
 // SignBytes is the canonical message a sender signs. It is domain separated
 // so a transaction signature can never be reused as a block signature.
-// Plain transfers keep the v1 encoding; pool operations use v2.
+// Plain ORP transfers keep the v1 encoding; everything else uses v2.
 func (tx *Tx) SignBytes() []byte {
 	e := &encoder{}
-	if tx.Pool == nil {
-		e.str("openreserve/tx/v1")
-	} else {
+	v2 := tx.Pool != nil || tx.Kind != "" || tx.Asset != ""
+	if v2 {
 		e.str("openreserve/tx/v2")
+	} else {
+		e.str("openreserve/tx/v1")
 	}
 	e.str(tx.ChainID)
 	e.str(string(tx.From))
@@ -153,7 +182,13 @@ func (tx *Tx) SignBytes() []byte {
 	e.u64(tx.Fee)
 	e.u64(tx.Nonce)
 	e.str(tx.Memo)
+	if !v2 {
+		return e.buf
+	}
+	e.str(tx.Kind)
+	e.str(tx.Asset)
 	if p := tx.Pool; p != nil {
+		e.raw([]byte{1})
 		e.str(p.Op)
 		e.raw(p.ID[:])
 		e.str(p.Name)
@@ -162,6 +197,8 @@ func (tx *Tx) SignBytes() []byte {
 			e.str(string(m))
 		}
 		e.u64(p.Contribution)
+	} else {
+		e.raw([]byte{0})
 	}
 	return e.buf
 }
@@ -186,11 +223,26 @@ func (tx *Tx) CheckStateless(chainID string) error {
 	if len(tx.Memo) > MaxMemoLen {
 		return fmt.Errorf("memo longer than %d bytes", MaxMemoLen)
 	}
-	if tx.Pool == nil {
-		if err := tx.checkTransfer(); err != nil {
-			return err
+	if !ValidAsset(tx.Asset) {
+		return fmt.Errorf("invalid asset %q", tx.Asset)
+	}
+	var err error
+	switch {
+	case tx.Pool != nil:
+		if tx.Kind != "" {
+			return errors.New("pool operations cannot have a kind")
 		}
-	} else if err := tx.checkPoolOp(); err != nil {
+		err = tx.checkPoolOp()
+	case tx.Kind == "":
+		err = tx.checkTransfer()
+	case tx.Kind == KindMint:
+		err = tx.checkMint()
+	case tx.Kind == KindBurn:
+		err = tx.checkBurn()
+	default:
+		err = fmt.Errorf("unknown kind %q", tx.Kind)
+	}
+	if err != nil {
 		return err
 	}
 	pub, _ := tx.From.PubKey()
@@ -206,6 +258,38 @@ func (tx *Tx) checkTransfer() error {
 	}
 	if tx.From == tx.To {
 		return errors.New("from and to must differ")
+	}
+	if tx.Amount == 0 {
+		return errors.New("amount must be positive")
+	}
+	if tx.Amount+tx.Fee < tx.Amount {
+		return errors.New("amount + fee overflows")
+	}
+	return nil
+}
+
+func (tx *Tx) checkMint() error {
+	if tx.Asset == "" {
+		return errors.New("ORP cannot be minted")
+	}
+	if err := tx.To.Validate(); err != nil {
+		return fmt.Errorf("to: %w", err)
+	}
+	if tx.Amount == 0 {
+		return errors.New("amount must be positive")
+	}
+	if tx.Fee != 0 {
+		return errors.New("mints carry no fee")
+	}
+	return nil
+}
+
+func (tx *Tx) checkBurn() error {
+	if tx.Asset == "" {
+		return errors.New("ORP cannot be burned this way")
+	}
+	if tx.To != "" {
+		return errors.New("burn must not set to")
 	}
 	if tx.Amount == 0 {
 		return errors.New("amount must be positive")

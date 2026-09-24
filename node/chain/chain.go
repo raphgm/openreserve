@@ -6,6 +6,7 @@ import (
 	"crypto/ed25519"
 	"errors"
 	"fmt"
+	"maps"
 	"path/filepath"
 	"slices"
 	"sort"
@@ -125,10 +126,14 @@ func (c *Chain) Submit(tx *types.Tx) (types.Hash, error) {
 		if p.tx.Nonce == tx.Nonce {
 			return id, fmt.Errorf("a pending tx already uses nonce %d", tx.Nonce)
 		}
-		need += c.state.Cost(p.tx)
+		if p.tx.Asset == tx.Asset {
+			need += c.state.Cost(p.tx)
+		}
 	}
-	if need > acc.Balance {
-		return id, fmt.Errorf("%w: pending txs need %s ORP", ledger.ErrInsufficient, types.FormatAmount(need))
+	if tx.Pool == nil || tx.Pool.Op != types.PoolClaim { // claims are funded by the pot
+		if have := c.state.Balance(tx.From, tx.Asset); need > have {
+			return id, fmt.Errorf("%w: pending txs need %s %s", ledger.ErrInsufficient, types.FormatAmount(need), types.AssetName(tx.Asset))
+		}
 	}
 	c.mempool[id] = pendingTx{tx: tx, added: time.Now()}
 	return id, nil
@@ -310,6 +315,7 @@ type Status struct {
 	Supply      types.Amount  `json:"supply"`
 	Burned      types.Amount  `json:"burned"`
 	MinFee      types.Amount  `json:"min_fee"`
+	Assets      []AssetStatus `json:"assets"`
 	Accounts    int           `json:"accounts"`
 	MempoolSize int           `json:"mempool_size"`
 	Proposer    types.Address `json:"proposer"`
@@ -323,6 +329,7 @@ func (c *Chain) Status() Status {
 		ChainID: c.genesis.ChainID, Height: tip.Height, TipHash: tip.Hash, TipTime: tip.Time,
 		StateRoot: c.state.Root(), Supply: c.state.Supply, Burned: c.state.Burned,
 		MinFee: c.state.MinFee, Accounts: len(c.state.Accounts), MempoolSize: len(c.mempool),
+		Assets:   c.assetStatus(),
 		Proposer: c.genesis.Proposer,
 	}
 }
@@ -455,5 +462,20 @@ func (c *Chain) PoolsOf(a types.Address) []*ledger.Pool {
 		}
 	}
 	slices.SortFunc(out, func(x, y *ledger.Pool) int { return strings.Compare(x.Name, y.Name) })
+	return out
+}
+
+// AssetStatus is an issued asset's definition and current supply. For a
+// backed asset, Supply must never exceed the issuer's real-money reserve.
+type AssetStatus struct {
+	ledger.AssetDef
+	Supply types.Amount `json:"supply"`
+}
+
+func (c *Chain) assetStatus() []AssetStatus {
+	out := []AssetStatus{}
+	for _, sym := range slices.Sorted(maps.Keys(c.state.AssetDefs)) {
+		out = append(out, AssetStatus{AssetDef: c.state.AssetDefs[sym], Supply: c.state.AssetSupply[sym]})
+	}
 	return out
 }

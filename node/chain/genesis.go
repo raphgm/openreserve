@@ -21,6 +21,9 @@ type Genesis struct {
 	Proposer    types.Address `json:"proposer"`
 	MinFee      types.Amount  `json:"min_fee"`
 	Allocations []Allocation  `json:"allocations"`
+	// Assets are issued currencies (e.g. NGN backed by naira collected via
+	// Paystack). Only each asset's issuer can mint it.
+	Assets []ledger.AssetDef `json:"assets,omitempty"`
 }
 
 // Allocation credits an address at genesis.
@@ -69,6 +72,18 @@ func (g *Genesis) Validate() error {
 // State builds the initial ledger state.
 func (g *Genesis) State() (*ledger.State, error) {
 	s := ledger.New(g.MinFee)
+	for _, a := range g.Assets {
+		if a.Symbol == "" || !types.ValidAsset(a.Symbol) {
+			return nil, fmt.Errorf("genesis asset: invalid symbol %q", a.Symbol)
+		}
+		if _, dup := s.AssetDefs[a.Symbol]; dup {
+			return nil, fmt.Errorf("genesis asset %s defined twice", a.Symbol)
+		}
+		if err := a.Issuer.Validate(); err != nil {
+			return nil, fmt.Errorf("genesis asset %s issuer: %w", a.Symbol, err)
+		}
+		s.AssetDefs[a.Symbol] = a
+	}
 	for _, a := range g.Allocations {
 		if err := s.Credit(a.Address, a.Amount); err != nil {
 			return nil, fmt.Errorf("genesis allocation %s: %w", a.Address, err)

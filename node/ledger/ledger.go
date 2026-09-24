@@ -7,16 +7,37 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
 	"sort"
 
 	"github.com/openreserve/node/types"
 )
 
-// Account is the state of a single address.
+// Account is the state of a single address. Balance is ORP; Assets holds
+// balances of issued assets such as NGN.
 type Account struct {
-	Balance types.Amount `json:"balance"`
-	Nonce   uint64       `json:"nonce"`
+	Balance types.Amount            `json:"balance"`
+	Nonce   uint64                  `json:"nonce"`
+	Assets  map[string]types.Amount `json:"assets,omitempty"`
+}
+
+func (a Account) clone() Account {
+	if a.Assets != nil {
+		a.Assets = maps.Clone(a.Assets)
+	}
+	return a
+}
+
+// AssetDef describes an issued asset. Only Issuer can mint it; the issuer
+// is expected to hold an equal amount of the real currency in reserve
+// (e.g. naira collected through Paystack).
+type AssetDef struct {
+	Symbol   string        `json:"symbol"`
+	Name     string        `json:"name"`
+	Issuer   types.Address `json:"issuer"`
+	MinFee   types.Amount  `json:"min_fee"`
+	Decimals int           `json:"decimals"` // display precision, e.g. 2 for naira
 }
 
 // Pool status values.
@@ -31,6 +52,7 @@ const (
 type Pool struct {
 	ID           types.Hash      `json:"id"`
 	Name         string          `json:"name"`
+	Asset        string          `json:"asset,omitempty"` // "" = ORP
 	Creator      types.Address   `json:"creator"`
 	Members      []types.Address `json:"members"` // payout order
 	Contribution types.Amount    `json:"contribution"`
@@ -59,11 +81,13 @@ func (p *Pool) clone() *Pool {
 // State is the full ledger. It is not safe for concurrent use; the chain
 // package serializes access.
 type State struct {
-	Accounts map[types.Address]Account
-	Pools    map[types.Hash]*Pool
-	Supply   types.Amount // all ORP in accounts and pools; fees are burned from it
-	Burned   types.Amount
-	MinFee   types.Amount
+	Accounts    map[types.Address]Account
+	Pools       map[types.Hash]*Pool
+	Supply      types.Amount // all ORP in accounts and pools; fees are burned from it
+	Burned      types.Amount
+	MinFee      types.Amount
+	AssetDefs   map[string]AssetDef     // fixed at genesis
+	AssetSupply map[string]types.Amount // units of each issued asset in existence
 }
 
 // Errors returned by Apply. ErrNonceTooHigh lets the mempool keep a tx that
@@ -75,11 +99,56 @@ var (
 	ErrFeeTooLow    = errors.New("fee below minimum")
 	ErrOverflow     = errors.New("balance overflow")
 	ErrPool         = errors.New("pool rule")
+	ErrAsset        = errors.New("asset rule")
 )
 
 // New creates an empty state.
 func New(minFee types.Amount) *State {
-	return &State{Accounts: map[types.Address]Account{}, Pools: map[types.Hash]*Pool{}, MinFee: minFee}
+	return &State{
+		Accounts: map[types.Address]Account{}, Pools: map[types.Hash]*Pool{}, MinFee: minFee,
+		AssetDefs: map[string]AssetDef{}, AssetSupply: map[string]types.Amount{},
+	}
+}
+
+// Balance returns an address's balance of an asset ("" = ORP).
+func (s *State) Balance(a types.Address, asset string) types.Amount {
+	acc := s.Accounts[a]
+	if asset == "" {
+		return acc.Balance
+	}
+	return acc.Assets[asset]
+}
+
+func (s *State) setBalance(a types.Address, asset string, v types.Amount) {
+	acc := s.Accounts[a].clone()
+	if asset == "" {
+		acc.Balance = v
+	} else {
+		if acc.Assets == nil {
+			acc.Assets = map[string]types.Amount{}
+		}
+		if v == 0 {
+			delete(acc.Assets, asset)
+		} else {
+			acc.Assets[asset] = v
+		}
+		if len(acc.Assets) == 0 {
+			acc.Assets = nil
+		}
+	}
+	s.Accounts[a] = acc
+}
+
+func (s *State) credit(a types.Address, asset string, v types.Amount) {
+	s.setBalance(a, asset, s.Balance(a, asset)+v)
+}
+
+// MinFeeFor returns the minimum fee for txs in an asset.
+func (s *State) MinFeeFor(asset string) types.Amount {
+	if asset == "" {
+		return s.MinFee
+	}
+	return s.AssetDefs[asset].MinFee
 }
 
 // Get returns an account; unknown addresses have zero balance and nonce.
@@ -105,16 +174,19 @@ func (s *State) Credit(a types.Address, amt types.Amount) error {
 	return nil
 }
 
-// Cost is what a tx will debit from its sender: amount plus fee, or the
-// contribution plus fee for a pool contribution.
+// Cost is what a tx will debit from its sender, in tx.Asset: amount plus
+// fee, the contribution plus fee for a pool contribution, and nothing for a
+// mint.
 func (s *State) Cost(tx *types.Tx) types.Amount {
-	cost := tx.Amount + tx.Fee
-	if tx.Pool != nil && tx.Pool.Op == types.PoolContribute {
+	switch {
+	case tx.Kind == types.KindMint:
+		return 0
+	case tx.Pool != nil && tx.Pool.Op == types.PoolContribute:
 		if p := s.Pools[tx.Pool.ID]; p != nil {
-			cost = p.Contribution + tx.Fee
+			return p.Contribution + tx.Fee
 		}
 	}
-	return cost
+	return tx.Amount + tx.Fee
 }
 
 // Check validates a tx against current state without modifying it. The tx
@@ -125,8 +197,13 @@ func (s *State) Check(tx *types.Tx) error { return s.apply(tx, false) }
 func (s *State) Apply(tx *types.Tx) error { return s.apply(tx, true) }
 
 func (s *State) apply(tx *types.Tx, commit bool) error {
-	if tx.Fee < s.MinFee {
-		return fmt.Errorf("%w: need %s ORP", ErrFeeTooLow, types.FormatAmount(s.MinFee))
+	if tx.Asset != "" {
+		if _, ok := s.AssetDefs[tx.Asset]; !ok {
+			return fmt.Errorf("%w: unknown asset %s", ErrAsset, tx.Asset)
+		}
+	}
+	if tx.Kind != types.KindMint && tx.Fee < s.MinFeeFor(tx.Asset) {
+		return fmt.Errorf("%w: need %s %s", ErrFeeTooLow, types.FormatAmount(s.MinFeeFor(tx.Asset)), types.AssetName(tx.Asset))
 	}
 	from := s.Accounts[tx.From]
 	switch {
@@ -136,27 +213,48 @@ func (s *State) apply(tx *types.Tx, commit bool) error {
 		return fmt.Errorf("%w: account nonce is %d", ErrNonceTooHigh, from.Nonce)
 	}
 	cost := s.Cost(tx)
-	if from.Balance < cost {
-		return fmt.Errorf("%w: balance %s ORP", ErrInsufficient, types.FormatAmount(from.Balance))
+	available := s.Balance(tx.From, tx.Asset)
+	if tx.Pool != nil && tx.Pool.Op == types.PoolClaim {
+		// The claimer may have spent everything on contributions; let the
+		// fee come out of the pot they are receiving.
+		if p := s.Pools[tx.Pool.ID]; p != nil && p.Asset == tx.Asset {
+			available += p.Pot()
+		}
+	}
+	if available < cost {
+		return fmt.Errorf("%w: balance %s %s", ErrInsufficient, types.FormatAmount(s.Balance(tx.From, tx.Asset)), types.AssetName(tx.Asset))
 	}
 
 	var effect func()
 	var err error
-	if tx.Pool == nil {
-		effect, err = s.transfer(tx)
-	} else {
+	switch {
+	case tx.Pool != nil:
 		effect, err = s.poolOp(tx)
+	case tx.Kind == types.KindMint:
+		effect, err = s.mint(tx)
+	case tx.Kind == types.KindBurn:
+		effect, err = s.burn(tx)
+	default:
+		effect, err = s.transfer(tx)
 	}
 	if err != nil || !commit {
 		return err
 	}
 
-	from.Balance -= cost
-	from.Nonce++
-	s.Accounts[tx.From] = from
-	s.Supply -= tx.Fee
-	s.Burned += tx.Fee
+	// Credits first (a claim's pot may fund its own fee), then the debit.
 	effect()
+	s.setBalance(tx.From, tx.Asset, s.Balance(tx.From, tx.Asset)-cost)
+	acc := s.Accounts[tx.From].clone()
+	acc.Nonce++
+	s.Accounts[tx.From] = acc
+	if tx.Fee > 0 {
+		if tx.Asset == "" {
+			s.Supply -= tx.Fee
+			s.Burned += tx.Fee
+		} else {
+			s.credit(s.AssetDefs[tx.Asset].Issuer, tx.Asset, tx.Fee)
+		}
+	}
 	return nil
 }
 
@@ -164,15 +262,29 @@ func (s *State) apply(tx *types.Tx, commit bool) error {
 // Check and Apply share one code path and a rejected tx changes nothing.
 
 func (s *State) transfer(tx *types.Tx) (func(), error) {
-	to := s.Accounts[tx.To]
-	if to.Balance+tx.Amount < to.Balance {
+	if b := s.Balance(tx.To, tx.Asset); b+tx.Amount < b {
+		return nil, ErrOverflow
+	}
+	return func() { s.credit(tx.To, tx.Asset, tx.Amount) }, nil
+}
+
+func (s *State) mint(tx *types.Tx) (func(), error) {
+	def := s.AssetDefs[tx.Asset]
+	if tx.From != def.Issuer {
+		return nil, fmt.Errorf("%w: only the %s issuer can mint", ErrAsset, tx.Asset)
+	}
+	if sup := s.AssetSupply[tx.Asset]; sup+tx.Amount < sup {
 		return nil, ErrOverflow
 	}
 	return func() {
-		to := s.Accounts[tx.To]
-		to.Balance += tx.Amount
-		s.Accounts[tx.To] = to
+		s.credit(tx.To, tx.Asset, tx.Amount)
+		s.AssetSupply[tx.Asset] += tx.Amount
 	}, nil
+}
+
+// burn destroys the sender's units (the debit happens via Cost).
+func (s *State) burn(tx *types.Tx) (func(), error) {
+	return func() { s.AssetSupply[tx.Asset] -= tx.Amount }, nil
 }
 
 func (s *State) poolOp(tx *types.Tx) (func(), error) {
@@ -185,7 +297,7 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 		return func() {
 			n := len(op.Members)
 			p := &Pool{
-				ID: id, Name: op.Name, Creator: tx.From, Members: slices.Clone(op.Members),
+				ID: id, Name: op.Name, Asset: tx.Asset, Creator: tx.From, Members: slices.Clone(op.Members),
 				Contribution: op.Contribution, Joined: make([]bool, n), Status: PoolForming,
 				Paid: make([]bool, n), Claimed: make([]bool, n),
 			}
@@ -201,6 +313,9 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 	i := p.index(tx.From)
 	if i < 0 {
 		return nil, fmt.Errorf("%w: not a member of this pool", ErrPool)
+	}
+	if tx.Asset != p.Asset {
+		return nil, fmt.Errorf("%w: this pool uses %s", ErrPool, types.AssetName(p.Asset))
 	}
 
 	switch op.Op {
@@ -238,13 +353,11 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 			return nil, fmt.Errorf("%w: waiting for all contributions this round", ErrPool)
 		}
 		pot := p.Pot()
-		if to := s.Accounts[tx.From]; to.Balance+pot < to.Balance {
+		if b := s.Balance(tx.From, p.Asset); b+pot < b {
 			return nil, ErrOverflow
 		}
 		return func() {
-			acc := s.Accounts[tx.From]
-			acc.Balance += pot
-			s.Accounts[tx.From] = acc
+			s.credit(tx.From, p.Asset, pot)
 			p.Balance -= pot
 			p.Claimed[i] = true
 			p.Round++
@@ -263,8 +376,9 @@ func (s *State) Clone() *State {
 	c := *s
 	c.Accounts = make(map[types.Address]Account, len(s.Accounts))
 	for k, v := range s.Accounts {
-		c.Accounts[k] = v
+		c.Accounts[k] = v.clone()
 	}
+	c.AssetSupply = maps.Clone(s.AssetSupply)
 	c.Pools = make(map[types.Hash]*Pool, len(s.Pools))
 	for k, v := range s.Pools {
 		c.Pools[k] = v.clone()
@@ -300,6 +414,10 @@ func (s *State) Root() types.Hash {
 		h.Write([]byte(a))
 		u64(acc.Balance)
 		u64(acc.Nonce)
+		for _, sym := range slices.Sorted(maps.Keys(acc.Assets)) {
+			str(sym)
+			u64(acc.Assets[sym])
+		}
 	}
 
 	ids := make([]types.Hash, 0, len(s.Pools))
@@ -311,6 +429,9 @@ func (s *State) Root() types.Hash {
 		p := s.Pools[id]
 		h.Write(id[:])
 		str(p.Name)
+		if p.Asset != "" {
+			str(p.Asset)
+		}
 		str(string(p.Creator))
 		u64(uint64(len(p.Members)))
 		for _, m := range p.Members {
@@ -327,6 +448,12 @@ func (s *State) Root() types.Hash {
 
 	u64(s.Supply)
 	u64(s.Burned)
+	for _, sym := range slices.Sorted(maps.Keys(s.AssetSupply)) {
+		if s.AssetSupply[sym] != 0 {
+			str(sym)
+			u64(s.AssetSupply[sym])
+		}
+	}
 	var out types.Hash
 	copy(out[:], h.Sum(nil))
 	return out

@@ -55,6 +55,7 @@ func (s *server) account(w http.ResponseWriter, r *http.Request) {
 		"balance_orp": types.FormatAmount(acc.Balance),
 		"nonce":       acc.Nonce,
 		"next_nonce":  next,
+		"assets":      assetsOrEmpty(acc.Assets),
 	})
 }
 
@@ -168,6 +169,13 @@ func (s *server) accountPools(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, s.c.PoolsOf(addr))
+}
+
+func assetsOrEmpty(m map[string]types.Amount) map[string]types.Amount {
+	if m == nil {
+		return map[string]types.Amount{}
+	}
+	return m
 }
 
 func queryInt(r *http.Request, key string, def, max int) int {

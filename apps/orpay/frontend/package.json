@@ -10,5 +10,8 @@
   },
   "devDependencies": {
     "vite": "^8.1.1"
+  },
+  "dependencies": {
+    "@noble/ed25519": "^2.3.0"
   }
 }

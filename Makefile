@@ -1,4 +1,4 @@
-.PHONY: build test lint devnet-init devnet-up run clean
+.PHONY: build test lint devnet-init devnet-up run orpay-backend orpay clean
 
 BIN := bin
 
@@ -30,6 +30,14 @@ devnet-up:
 
 run: build
 	$(BIN)/openreserved -key devnet/proposer.json -genesis devnet/genesis.json -data devnet/data
+
+# ORPay backend (usernames + devnet faucet funded by alice). Needs `make run`.
+orpay-backend:
+	cd apps/orpay/backend && go run . -db ../../../devnet/orpay-users.json -faucet-key ../../../devnet/alice.json
+
+# ORPay web app on http://localhost:5173 (proxies to the node and backend).
+orpay:
+	cd apps/orpay/frontend && npm install && npm run dev
 
 clean:
 	rm -rf $(BIN)

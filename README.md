@@ -268,6 +268,20 @@ make devnet-init
 docker compose up --build   # producer on :8080, replica on :8081
 ```
 
+## Run ORPay (web wallet)
+
+With the node running (`make run`), start these in two more terminals:
+
+```bash
+make orpay-backend   # usernames + faucet on :4000
+make orpay           # web app on http://localhost:5173
+```
+
+Create a wallet, tap **Get 100 test ORP**, claim an @username and send a payment.
+ORPay is non-custodial: keys are generated in the browser, encrypted with your
+password (PBKDF2 + AES-GCM) and never leave the device. The backend only maps
+usernames to addresses, and each claim must be signed by the address's key.
+
 ## Run the tests
 
 ```bash

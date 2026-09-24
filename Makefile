@@ -1,4 +1,4 @@
-.PHONY: build test lint devnet-init devnet-up run orpay-backend orpay gateway clean
+.PHONY: build test lint devnet-init devnet-up run orpay-backend orpay gateway testnet testnet-stop clean
 
 BIN := bin
 
@@ -57,6 +57,13 @@ gateway:
 # ORPay web app on http://localhost:5173 (proxies to the node and backend).
 orpay:
 	cd apps/orpay/frontend && npm install && npm run dev
+
+# Multi-validator network (CometBFT): 4 validators on this machine, APIs :8080-:8083.
+testnet:
+	scripts/testnet.sh start 4
+
+testnet-stop:
+	scripts/testnet.sh stop
 
 clean:
 	rm -rf $(BIN)

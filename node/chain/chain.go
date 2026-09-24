@@ -269,6 +269,7 @@ func (c *Chain) tipLocked() tipInfo {
 func (c *Chain) verify(b *types.Block) (*ledger.State, error) {
 	h := b.Header
 	tip := c.tipLocked()
+	bft := c.genesis.BFT()
 	switch {
 	case h.ChainID != c.genesis.ChainID:
 		return nil, fmt.Errorf("wrong chain_id %q", h.ChainID)
@@ -276,17 +277,21 @@ func (c *Chain) verify(b *types.Block) (*ledger.State, error) {
 		return nil, fmt.Errorf("height %d does not follow tip %d", h.Height, tip.Height)
 	case h.PrevHash != tip.Hash:
 		return nil, errors.New("prev_hash does not match tip")
-	case h.Time <= tip.Time:
+	case h.Time < tip.Time || (!bft && h.Time == tip.Time):
 		return nil, errors.New("block time must increase")
-	case h.Proposer != c.genesis.Proposer:
+	case !bft && h.Proposer != c.genesis.Proposer:
 		return nil, fmt.Errorf("proposer %s is not authorized", h.Proposer)
-	case len(b.Txs) == 0 || len(b.Txs) > MaxBlockTxs:
+	case len(b.Txs) > MaxBlockTxs || (!bft && len(b.Txs) == 0):
 		return nil, fmt.Errorf("block must contain 1..%d txs", MaxBlockTxs)
 	case h.TxRoot != types.TxRoot(b.Txs):
 		return nil, errors.New("tx_root mismatch")
 	}
-	if err := b.VerifySig(); err != nil {
-		return nil, err
+	// Under CometBFT the validator set already agreed on the block (2/3+ of
+	// voting power signed it); there is no single proposer signature.
+	if !bft {
+		if err := b.VerifySig(); err != nil {
+			return nil, err
+		}
 	}
 	next := c.state.Clone()
 	next.Now = h.Time
@@ -590,4 +595,96 @@ func (c *Chain) Counts() Counts {
 		}
 	}
 	return out
+}
+
+// ExecuteDecided runs the txs of a block decided by CometBFT at the given
+// height and time. Unlike Produce it never rejects the block: txs that fail
+// (e.g. a nonce already used) are skipped, identically on every node, and
+// their errors are returned by position. The result is committed with
+// CommitDecided once CometBFT commits.
+func (c *Chain) ExecuteDecided(height uint64, timeMs int64, proposer string, txs []*types.Tx) (*types.Block, *ledger.State, []error) {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	tip := c.tipLocked()
+	if timeMs < tip.Time {
+		timeMs = tip.Time
+	}
+	next := c.state.Clone()
+	next.Now = timeMs
+	errs := make([]error, len(txs))
+	var ok []*types.Tx
+	for i, tx := range txs {
+		switch {
+		case tx == nil:
+			errs[i] = errors.New("malformed transaction")
+		case len(ok) == MaxBlockTxs:
+			errs[i] = errors.New("block full")
+		default:
+			if err := tx.CheckStateless(c.genesis.ChainID); err != nil {
+				errs[i] = err
+			} else if err := next.Apply(tx); err != nil {
+				errs[i] = err
+			} else {
+				ok = append(ok, tx)
+			}
+		}
+	}
+	b := &types.Block{
+		Header: types.Header{
+			ChainID: c.genesis.ChainID, Height: height, PrevHash: tip.Hash, Time: timeMs,
+			TxRoot: types.TxRoot(ok), StateRoot: next.Root(), Proposer: types.Address(proposer),
+		},
+		Txs: ok,
+	}
+	if b.Txs == nil {
+		b.Txs = []*types.Tx{}
+	}
+	return b, next, errs
+}
+
+// CommitDecided persists a block produced by ExecuteDecided.
+func (c *Chain) CommitDecided(b *types.Block, next *ledger.State) error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if b.Header.Height != uint64(len(c.blocks))+1 {
+		return fmt.Errorf("commit height %d does not follow %d", b.Header.Height, len(c.blocks))
+	}
+	if err := c.log.append(b); err != nil {
+		return err
+	}
+	c.commit(b, next)
+	return nil
+}
+
+// CheckPending validates a tx for the shared mempool without adding it:
+// future nonces (up to MaxNonceAhead) are allowed.
+func (c *Chain) CheckPending(tx *types.Tx) error {
+	if err := tx.CheckStateless(c.genesis.ChainID); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	acc := c.state.Get(tx.From)
+	if tx.Nonce >= acc.Nonce+MaxNonceAhead {
+		return fmt.Errorf("%w: account nonce is %d", ledger.ErrNonceTooHigh, acc.Nonce)
+	}
+	c.state.Now = max(c.Clock(), c.tipLocked().Time+1)
+	if err := c.state.Check(tx); err != nil && !errors.Is(err, ledger.ErrNonceTooHigh) {
+		return err
+	}
+	return nil
+}
+
+// Forget drops a pending tx (e.g. the shared mempool refused it).
+func (c *Chain) Forget(id types.Hash) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	delete(c.mempool, id)
+}
+
+// StateRoot returns the committed state root.
+func (c *Chain) StateRoot() types.Hash {
+	c.mu.RLock()
+	defer c.mu.RUnlock()
+	return c.state.Root()
 }

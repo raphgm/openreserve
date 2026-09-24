@@ -16,9 +16,12 @@ import (
 type Genesis struct {
 	ChainID string `json:"chain_id"`
 	Time    int64  `json:"time"` // unix milliseconds
-	// Proposer is the single authority allowed to produce blocks. Moving to
-	// a multi-validator BFT set is the next milestone (see ROADMAP.md).
-	Proposer    types.Address `json:"proposer"`
+	// Consensus is "" for a single authorized proposer, or "cometbft" when a
+	// CometBFT validator set decides blocks (then Proposer is unused).
+	Consensus string `json:"consensus,omitempty"`
+	// Proposer is the single authority allowed to produce blocks when
+	// Consensus is "".
+	Proposer    types.Address `json:"proposer,omitempty"`
 	MinFee      types.Amount  `json:"min_fee"`
 	Allocations []Allocation  `json:"allocations"`
 	// Assets are issued currencies (e.g. NGN backed by naira collected via
@@ -31,6 +34,12 @@ type Allocation struct {
 	Address types.Address `json:"address"`
 	Amount  types.Amount  `json:"amount"`
 }
+
+// ConsensusCometBFT marks a chain whose blocks are decided by CometBFT.
+const ConsensusCometBFT = "cometbft"
+
+// BFT reports whether blocks come from CometBFT consensus.
+func (g *Genesis) BFT() bool { return g.Consensus == ConsensusCometBFT }
 
 // LoadGenesis reads and validates a genesis file.
 func LoadGenesis(path string) (*Genesis, error) {
@@ -52,8 +61,14 @@ func (g *Genesis) Validate() error {
 	if g.ChainID == "" {
 		return errors.New("genesis: chain_id required")
 	}
-	if err := g.Proposer.Validate(); err != nil {
-		return fmt.Errorf("genesis proposer: %w", err)
+	switch g.Consensus {
+	case "":
+		if err := g.Proposer.Validate(); err != nil {
+			return fmt.Errorf("genesis proposer: %w", err)
+		}
+	case ConsensusCometBFT:
+	default:
+		return fmt.Errorf("genesis: unknown consensus %q", g.Consensus)
 	}
 	seen := map[types.Address]bool{}
 	for _, a := range g.Allocations {

@@ -231,11 +231,18 @@ What works today is the **ledger core**. Everything else in this README is desig
 | REST API and `orctl` CLI wallet | Working |
 | ORPay web wallet: @usernames, QR codes and pay links, 24 recovery words | Working |
 | Per-IP rate limits, protected key loading, HTTPS deploy kit with backups | Working |
-| Multi-validator BFT consensus, P2P gossip | Planned (see [ROADMAP](ROADMAP.md)) |
+| Multi-validator BFT consensus (CometBFT), P2P gossip, app-hash agreement | Working |
+| On-chain savings pools and milestone escrow with arbitration | Working |
+| Partner platform (Gabis, Paynautik, SSLabs...): API keys, checkout, escrow, webhooks | Working |
+| Pluggable naira rails (Paystack, Flutterwave), reserve report | Working (test mode) |
+| Explorer, health checks, metrics, alerting, fast-restart snapshots | Working |
+| PWA and Capacitor iOS/Android projects | Working (store publishing pending) |
 | VM, bridge, governance, reserve minting | Prototypes in `node/_experimental`, not built |
 
-The chain currently trusts one block producer. That is fine for a devnet or a
-closed-loop pilot, but not for a public network.
+Two consensus modes: a single authorized producer (simple devnets and
+closed pilots), or a CometBFT validator set where blocks need 2/3+ of voting
+power and validators agree on the state root after every block. Real money
+still needs a licensed custody partner and legal sign-off.
 
 ---
 
@@ -288,6 +295,20 @@ usernames to addresses, and each claim must be signed by the address's key.
 
 See [deploy/README.md](deploy/README.md) to run the node and ORPay on your own
 domain with HTTPS and automatic backups.
+
+## Run a multi-validator network
+
+```bash
+make testnet        # 4 CometBFT validators, APIs on :8080-:8083
+ORP_NODE=http://localhost:8081 bin/orctl status
+make testnet-stop
+```
+
+Any 3 of the 4 validators keep the chain running; with 2 or fewer it halts
+safely (no forks) and resumes when validators return. For separate machines,
+generate with `bin/orp-testnet -n 4 -docker` (or edit each node's
+`persistent_peers`), give each operator one `node<i>` directory, and run
+`openreserved -cometbft-home node<i> ...` on each.
 
 ## Run the tests
 

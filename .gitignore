@@ -10,3 +10,4 @@ deploy/backups/
 deploy/genesis.json
 devnet/paystack.env
 deploy/.monitor-state
+testnet/

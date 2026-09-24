@@ -40,14 +40,21 @@ func main() {
 		readRate    = flag.Int("rate-read", 600, "read requests per minute per client IP")
 		submitRate  = flag.Int("rate-submit", 60, "transaction submissions per minute per client IP")
 		trustProxy  = flag.Bool("trust-proxy", false, "use X-Forwarded-For for client IPs (only behind a reverse proxy)")
+		cometHome   = flag.String("cometbft-home", "", "run as a CometBFT validator/full node with this CometBFT home directory")
 	)
 	flag.Parse()
 	key, err := keys.Resolve(*keyPath, "ORP_PROPOSER_SEED")
 	if err != nil {
 		log.Fatal(err)
 	}
-	if (key == nil) == (*follow == "") {
-		log.Fatal("give exactly one of a proposer key (-key or ORP_PROPOSER_SEED) or -follow URL")
+	modes := 0
+	for _, on := range []bool{key != nil, *follow != "", *cometHome != ""} {
+		if on {
+			modes++
+		}
+	}
+	if modes != 1 {
+		log.Fatal("give exactly one of: a proposer key (-key or ORP_PROPOSER_SEED), -follow URL, or -cometbft-home DIR")
 	}
 
 	g, err := chain.LoadGenesis(*genesisPath)
@@ -71,10 +78,21 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	if g.BFT() != (*cometHome != "") {
+		log.Fatal("genesis consensus and node mode disagree: use -cometbft-home exactly when genesis has \"consensus\": \"cometbft\"")
+	}
 	handler := api.Handler(c)
 	h := &health{dataDir: *dataDir, started: time.Now()}
 	h.beat()
-	if key != nil {
+	if *cometHome != "" {
+		h.role = "validator"
+		submit, stopBFT, err := startCometBFT(*cometHome, c, h)
+		if err != nil {
+			log.Fatal(err)
+		}
+		defer stopBFT()
+		handler = submit(handler)
+	} else if key != nil {
 		h.role = "producer"
 		if keys.Address(key) != g.Proposer {
 			log.Fatalf("key %s is not the genesis proposer %s", keys.Address(key), g.Proposer)

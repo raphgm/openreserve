@@ -727,3 +727,34 @@ body:has(.landing) { background: #f7f8fc; }
 .l-proto img { width: 22px; height: 22px; border-radius: 7px; }
 .l-proto b { background: var(--brand-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
 .l-built small { font-size: .75rem; }
+
+/* Wallet polish: brand balance card, compact header, empty states */
+.card.balance {
+  background:
+    radial-gradient(90% 120% at 0% 0%, rgb(124 58 237 / .9), transparent 60%),
+    radial-gradient(70% 90% at 100% 100%, rgb(34 211 238 / .55), transparent 60%),
+    linear-gradient(135deg, #1a0b4d, #0a1240 55%, #0a2a7a);
+  box-shadow: 0 24px 48px -20px rgb(26 11 77 / .65);
+}
+.card.balance::after { background: rgb(255 255 255 / .06); }
+.card.balance::before { background: rgb(255 255 255 / .04); }
+header#header { gap: 8px; }
+header .net { min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+header .chip { white-space: nowrap; max-width: 150px; overflow: hidden; text-overflow: ellipsis; flex: none; }
+.ghost-chip { display: inline-flex; align-items: center; gap: 6px; }
+.ghost-chip svg { width: 15px; height: 15px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; }
+@media (max-width: 480px) {
+  header .net { font-size: 0; flex: 0 0 auto; }
+  header .net .dot { font-size: initial; }
+  header { justify-content: space-between; }
+  header .logo { margin-right: auto; }
+  .ghost-chip span { display: none; }
+  .ghost-chip { padding: 8px 10px; margin-right: 0; }
+}
+.activity li.empty, ul li.empty:has(.empty-ico) { flex-direction: column; align-items: center; text-align: center; gap: 4px; padding: 24px 8px; }
+.empty-ico { width: 48px; height: 48px; border-radius: 15px; display: grid; place-items: center; background: linear-gradient(135deg, rgb(79 70 229 / .1), rgb(6 182 212 / .12)); margin-bottom: 4px; }
+.empty-ico svg { width: 24px; height: 24px; fill: none; stroke: var(--brand-1); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+li.empty strong { color: var(--text); font-size: .95rem; }
+li.empty small { color: var(--muted); }
+.tabbar button { min-width: 0; }
+.tabbar button[aria-current='page'] { background: linear-gradient(135deg, rgb(79 70 229 / .1), rgb(6 182 212 / .1)); }

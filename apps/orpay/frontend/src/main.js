@@ -256,7 +256,7 @@ function homeHTML() {
       </section>
       <section class="card">
         <h2>Activity</h2>
-        <ul class="activity" id="activity"><li class="empty">No payments yet.</li></ul>
+        <ul class="activity" id="activity"><li class="empty"><span class="empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h13l-3-3M19 15H6l3 3"/></svg></span><strong>No payments yet</strong><small>Top up or ask a friend to send you ORP.</small></li></ul>
       </section>`
 }
 
@@ -399,8 +399,8 @@ function renderHeader() {
     h.innerHTML = `
       <span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span>
       <span class="net" id="net"></span>
-      <a class="chip ghost-chip" href="/explorer.html" target="_blank" rel="noopener" title="See every block and transaction">Explorer</a>
-      <button class="chip" id="me">${who ? `@${esc(who)}` : 'Claim a username'}</button>`
+      <a class="chip ghost-chip" href="/explorer.html" target="_blank" rel="noopener" title="Explorer: see every block and transaction" aria-label="Explorer"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Explorer</span></a>
+      <button class="chip" id="me">${who ? `@${esc(who)}` : 'Claim @name'}</button>`
     $('#me').onclick = () => {
       if (state.view !== 'home') showView('home')
       who ? ((state.tab = 'receive'), renderPanel()) : renderClaim()
@@ -691,7 +691,7 @@ function renderClaim() {
 function renderActivity() {
   const ul = $('#activity')
   if (!ul) return
-  if (!state.history.length) return (ul.innerHTML = '<li class="empty">No payments yet.</li>')
+  if (!state.history.length) return (ul.innerHTML = '<li class="empty"><span class="empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h13l-3-3M19 15H6l3 3"/></svg></span><strong>No payments yet</strong><small>Top up or ask a friend to send you ORP.</small></li>')
   ul.innerHTML = state.history
     .map((e) => {
       if (e.tx.pool) return poolActivity(e)

@@ -38,8 +38,8 @@ export function formatMoney(micro, asset = '') {
   return `${formatAmount(micro)} ${asset || 'ORP'}`
 }
 
-// Reference rate for showing ORP in naira: 1 ORP = ₦1 (display only).
-export const NAIRA_PER_ORP = 1
+// Reference rate for showing ORP in naira: 1 ORP = ₦1,500 (about US$1), display only.
+export const NAIRA_PER_ORP = 1500
 export function nairaEq(micro, asset = '') {
   if (asset) return ''
   const naira = (Number(BigInt(micro) / 10_000n) / 100) * NAIRA_PER_ORP

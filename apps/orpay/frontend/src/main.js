@@ -9,6 +9,7 @@ import { initCheckout, renderCheckout } from './checkout.js'
 import { initDevelopers, renderDevelopers } from './developers.js'
 import { confirmDeposit, initMoney, renderAddMoney, renderWithdraw } from './money.js'
 import { initEscrow, renderEscrow, renderEscrows, renderFundRequest } from './escrow.js'
+import { renderLanding } from './landing.js'
 import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './vault.js'
 
 const app = document.getElementById('app')
@@ -858,5 +859,15 @@ async function renderGuestCheckout(invoice) {
     pending = JSON.parse(sessionStorage.getItem(PENDING))
   } catch {}
   if (pending?.invoice) renderGuestCheckout(pending)
-  else hasVault() ? renderUnlock() : renderWelcome()
+  else if (hasVault()) renderUnlock()
+  else showLanding()
+}
+
+function showLanding() {
+  renderLanding(app, {
+    onStart: async () => showBackup(await newSeed()),
+    onSignIn: renderImport,
+    signInLabel: 'Sign in',
+  })
+  window.scrollTo(0, 0)
 }

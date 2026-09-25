@@ -149,7 +149,6 @@ body:has(.lp) { background: #f7f7fc; }
 .lp-proto { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; background: #fff; box-shadow: 0 0 0 1px var(--line); }
 .lp-proto img { width: 22px; height: 22px; border-radius: 7px; }
 .lp-proto b { color: #4f46e5; }
-.lp-disclose { text-align: center; margin: 8px 0 40px; font-size: .78rem; font-weight: 600; color: #b45309; }
 
 .reveal { opacity: 0; transform: translateY(16px); transition: opacity .6s, transform .6s cubic-bezier(.2,.8,.2,1); }
 .reveal.in { opacity: 1; transform: none; }

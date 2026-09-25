@@ -150,7 +150,6 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
       <span class="lp-proto"><img src="/favicon.svg" alt="">Built on the <b>OpenReserve Protocol</b></span>
       <a href="/explorer.html">Explorer →</a>
     </footer>
-    <p class="lp-disclose">Test network · No real funds yet</p>
   </div>`
 
   app.querySelectorAll('[data-start]').forEach((b) => (b.onclick = onStart))

@@ -1,156 +1,175 @@
 // Public landing page for visitors without a wallet on this device.
+// Structure: nav, hero with wallet preview, trust strip, features, escrow
+// flow, transparency, developers, call to action.
+import './landing.css'
 
-const check = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="m5 12.5 4.5 4.5L19 7.5"/></svg>'
-const ic = {
-  ajo: '<circle cx="12" cy="12" r="8"/><path d="M12 4a8 8 0 0 1 8 8M12 8v4l3 2"/>',
+const svg = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`
+const I = {
+  up: '<path d="M12 19V5M6 11l6-6 6 6"/>',
+  down: '<path d="M12 5v14M6 13l6 6 6-6"/>',
   escrow: '<path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.2 7.5 9.5 4.3-1.3 7.5-4.9 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/>',
-  send: '<path d="M4 12 20 4l-6 16-3-7z"/><path d="m11 13 9-9"/>',
+  ajo: '<circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/>',
   eye: '<path d="M2.5 12S6 5 12 5s9.5 7 9.5 7-3.5 7-9.5 7-9.5-7-9.5-7z"/><circle cx="12" cy="12" r="3"/>',
-  code: '<path d="m8 8-4 4 4 4M16 8l4 4-4 4M13.5 5l-3 14"/>',
-  shield: '<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>',
+  check: '<path d="m5 12.5 4.5 4.5L19 7.5"/>',
 }
-const icon = (n) => `<span class="l-ico"><svg viewBox="0 0 24 24" aria-hidden="true">${ic[n]}</svg></span>`
 
 export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
-  document.title = 'ORPay: ajo and escrow payments, in the open'
+  document.title = 'ORPay: payments on OpenReserve'
   app.innerHTML = `
-  <div class="landing">
-    <nav class="l-nav">
-      <span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span>
-      <div class="l-links">
-        <a href="#features">Features</a>
-        <a href="#how">How it works</a>
-        <a href="#developers">Developers</a>
-        <a href="/explorer.html">Explorer</a>
+  <div class="lp">
+    <nav class="lp-nav">
+      <a class="logo" href="#top" aria-label="ORPay"><span class="logo-pay">Pay</span></a>
+      <div class="lp-links">
+        <a href="#features">Features</a><a href="#escrow">How it works</a><a href="#developers">Developers</a><a href="/explorer.html">Explorer</a>
       </div>
-      <div class="l-nav-cta">
-        <button class="l-btn ghost" data-signin>${signInLabel}</button>
-        <button class="l-btn dark" data-start>Get started</button>
+      <div class="lp-nav-cta">
+        <button class="lp-btn ghost" data-signin>${signInLabel}</button>
+        <button class="lp-btn ink" data-start>Get started</button>
       </div>
     </nav>
 
-    <section class="l-hero">
-      <div>
-        <span class="l-pill"><span class="dot on"></span><span id="l-live">Live on an open ledger</span></span>
-        <h1>Save together.<br>Buy safely.<br><span>Everyone can see it's fair.</span></h1>
-        <p class="l-lead">Ajo and escrow on an open ledger. Nobody can touch the money. Not even us.</p>
-        <div class="l-cta">
-          <button class="l-btn primary lg" data-start>Create a free wallet</button>
-          <a class="l-btn ghost lg" href="#how">See how it works</a>
+    <section class="lp-hero" id="top">
+      <div class="lp-glow"></div>
+      <div class="lp-wrap lp-hero-grid">
+        <div>
+          <span class="lp-pill"><span class="dot on"></span><span id="lp-live">Live on the OpenReserve network</span></span>
+          <h1>Money should<br><span class="lp-grad">just work.</span></h1>
+          <p class="lp-lead">Send money, save in ajo and pay through escrow. Every step visible.</p>
+          <div class="lp-cta">
+            <button class="lp-btn ink lg" data-start>Create a wallet</button>
+            <a class="lp-btn ghost lg" href="#escrow">Explore payments</a>
+          </div>
+          <ul class="lp-ticks">
+            <li>${svg(I.check)}Transparent settlement</li><li>${svg(I.check)}Escrow built in</li><li>${svg(I.check)}Flat ₦20 fee</li>
+          </ul>
         </div>
-        <ul class="l-ticks">
-          <li>${check}Flat ₦20 fee</li><li>${check}Keys stay on your phone</li><li>${check}Every kobo traceable</li>
-        </ul>
-      </div>
-      <div class="l-mock" aria-hidden="true">
-        <div class="l-phone">
-          <i class="l-btn-side a"></i><i class="l-btn-side b"></i><i class="l-btn-side c"></i><i class="l-btn-side d"></i>
-          <div class="l-screen">
-          <div class="l-status"><b>9:41</b><span class="l-island"></span><span class="l-sig"><i></i><i></i><i></i><i></i><svg viewBox="0 0 16 12"><path d="M8 11.5 1 4.3a10 10 0 0 1 14 0z"/></svg><span class="l-batt"><span></span></span></span></div>
-          <div class="l-apphead"><span class="logo" aria-hidden="true"><span class="logo-pay">Pay</span></span><span class="l-me">AO</span></div>
-          <div class="l-bal"><small>Naira balance</small><strong>₦248,500.00</strong><span>+₦50,000 ajo payout today</span></div>
-          <div class="l-card">
-            <div class="l-row"><b>Market women ajo</b><em>Round 4 of 6</em></div>
-            <div class="l-bar"><i style="width:66%"></i></div>
-            <div class="l-avs"><span style="--h:260">AO</span><span style="--h:190">TK</span><span style="--h:320">FB</span><span style="--h:40">NI</span><span class="next" style="--h:150">YOU</span><span style="--h:220">EM</span></div>
-            <small class="l-note">You're next · all 6 paid this round</small>
-          </div>
-          <div class="l-card l-esc">
-            <div class="l-row"><b>iPhone 14 · escrow</b><em class="ok">Delivered</em></div>
-            <small class="l-note">₦420,000 held until you inspect it</small>
-            <div class="l-btns"><span class="yes">Release</span><span>Dispute</span></div>
-          </div>
-          <div class="l-tabs"><span class="on">Home</span><span>Pools</span><span>Escrow</span></div>
-          <span class="l-home-ind"></span>
+
+        <div class="lp-phone-wrap" aria-hidden="true">
+          <div class="lp-phone">
+            <i class="side a"></i><i class="side b"></i><i class="side c"></i><i class="side d"></i>
+            <div class="lp-screen">
+              <div class="lp-status"><b>9:41</b><span class="island"></span><span class="lp-sig"><i></i><i></i><i></i><i></i><span class="batt"><span></span></span></span></div>
+              <div class="lp-apphead"><span class="logo"><span class="logo-pay">Pay</span></span><span class="me">RG</span></div>
+              <div class="lp-bal">
+                <small>Available balance</small>
+                <strong>₦248,500</strong>
+                <span>+₦45,000 today</span>
+              </div>
+              <div class="lp-actions">
+                <span><i class="c1">${svg(I.up)}</i>Send</span>
+                <span><i class="c2">${svg(I.down)}</i>Receive</span>
+                <span><i class="c3">${svg(I.escrow)}</i>Escrow</span>
+                <span><i class="c4">${svg(I.ajo)}</i>Ajo</span>
+              </div>
+              <div class="lp-recent-head"><b>Recent activity</b><span>See all</span></div>
+              <div class="lp-tx"><i class="in">${svg(I.down)}</i><span><b>Ajo payout</b><small>Today · 9:42 AM</small></span><em class="pos">+₦45,000</em></div>
+              <div class="lp-tx"><i class="out">${svg(I.escrow)}</i><span><b>Escrow · iPhone 14</b><small>Yesterday · 4:20 PM</small></span><em>−₦42,000</em></div>
+              <div class="lp-tabs"><span class="on">Home</span><span>Pools</span><span>Escrow</span><span>Profile</span></div>
+              <span class="home-ind"></span>
+            </div>
           </div>
         </div>
       </div>
     </section>
 
-    <section class="l-trust" aria-label="Built for">
-      <div class="l-marquee"><div>${'<b>Gabis Payments</b><i>✦</i><b>Paynautik</b><i>✦</i><b>SSLabs</b><i>✦</i><b>Ajo groups</b><i>✦</i><b>Online sellers</b><i>✦</i>'.repeat(4)}</div></div>
-    </section>
+    <section class="lp-strip"><div class="lp-wrap"><span>OpenReserve</span><span>Gabis Payments</span><span>Paynautik</span><span>SSLabs</span><span>ORPay</span></div></section>
 
-    <section class="l-sec" id="features">
-      <h2>Money, minus the drama.</h2>
-      <div class="l-bento">
-        <article class="big reveal">
-          ${icon('ajo')}<h3>Ajo that runs itself</h3><p>See who paid. See who's next.</p>
-          <div class="v-ajo"><span style="--h:260">AO</span><span style="--h:190">TK</span><span style="--h:320">FB</span><span class="next" style="--h:150">YOU</span><span class="todo">EM</span><span class="todo">NI</span></div>
-        </article>
-        <article class="big reveal">
-          ${icon('escrow')}<h3>Inspect, then pay</h3><p>Money waits until you're happy.</p>
-          <div class="v-esc"><span class="on">Locked</span><i></i><span class="on">Delivered</span><i></i><span>Released</span></div>
-        </article>
-        <article class="reveal">${icon('send')}<h3>Pay by @username</h3><p>Flat ₦20.</p></article>
-        <article class="reveal">${icon('eye')}<h3>Open ledger</h3><p>Every kobo, visible.</p></article>
-        <article class="reveal">${icon('shield')}<h3>Your keys</h3><p>No one else can move it.</p></article>
-        <article class="reveal">${icon('code')}<h3>For businesses</h3><p>Plug in with one SDK.</p></article>
+    <section class="lp-wrap lp-sec" id="features">
+      <p class="lp-eyebrow">Payments, done right</p>
+      <h2>Everything you need<br>to move money.</h2>
+      <div class="lp-cards">
+        <article class="reveal"><i class="c1">${svg(I.up)}</i><h3>Send instantly</h3><p>Pay anyone by @username or QR.</p></article>
+        <article class="reveal"><i class="c3">${svg(I.escrow)}</i><h3>Built-in escrow</h3><p>Funds wait until both sides are happy.</p></article>
+        <article class="reveal"><i class="c4">${svg(I.ajo)}</i><h3>Ajo pools</h3><p>See who paid and who's next.</p></article>
+        <article class="reveal"><i class="c2">${svg(I.eye)}</i><h3>Open ledger</h3><p>Every payment can be verified.</p></article>
       </div>
     </section>
 
-    <section class="l-sec" id="how">
-      <h2>Escrow in three taps.</h2>
-      <ol class="l-steps">
-        <li class="reveal"><span>1</span><h3>Lock</h3><p>Buyer pays into escrow.</p></li>
-        <li class="reveal"><span>2</span><h3>Check</h3><p>Goods arrive. Inspect them.</p></li>
-        <li class="reveal"><span>3</span><h3>Release</h3><p>Seller gets paid. Done.</p></li>
-      </ol>
+    <section class="lp-band" id="escrow">
+      <div class="lp-wrap lp-sec center">
+        <p class="lp-eyebrow">Escrow</p>
+        <h2>Payments with <span class="lp-grad">less drama.</span></h2>
+        <p class="lp-sub">Money stays protected until the deal is done. No returns, so buyers accept the terms first.</p>
+        <ol class="lp-steps">
+          <li class="reveal"><span>1</span><h3>Lock</h3><p>Buyer puts the amount into escrow.</p></li>
+          <li class="reveal"><span>2</span><h3>Inspect</h3><p>Buyer receives and checks the goods.</p></li>
+          <li class="reveal"><span>3</span><h3>Release</h3><p>Seller is paid when it's complete.</p></li>
+        </ol>
+      </div>
     </section>
 
-    <section class="l-sec l-dev" id="developers">
+    <section class="lp-wrap lp-sec lp-split">
       <div>
-        <h2>Accept ORPay in your app</h2>
-        <p class="l-sub left">Checkout, escrow and webhooks. Your logo beside ours.</p>
-        <button class="l-btn dark" data-start>Request API access</button>
+        <p class="lp-eyebrow">Transparency</p>
+        <h2>Know where<br>your money is.</h2>
+        <p class="lp-sub left">Every payment has a clear state. No guessing, no hidden steps.</p>
       </div>
-      <pre class="l-code"><code><span class="k">import</span> { ORPay } <span class="k">from</span> <span class="s">'@openreserve/orpay'</span>
+      <div class="lp-track reveal">
+        <div class="lp-track-head"><span><small>Transaction</small><b>iPhone 14 · Escrow</b></span><em>Delivered</em></div>
+        <div class="lp-track-steps">
+          <span class="done"><i>${svg(I.check)}</i>Locked</span><b></b>
+          <span class="done green"><i>${svg(I.check)}</i>Delivered</span><b class="dim"></b>
+          <span><i>3</i>Released</span>
+        </div>
+        <div class="lp-track-amt"><span>Escrow amount</span><strong>₦420,000</strong></div>
+      </div>
+    </section>
+
+    <section class="lp-dark" id="developers">
+      <div class="lp-wrap lp-sec lp-split">
+        <div>
+          <p class="lp-eyebrow light">For developers</p>
+          <h2>Put payments<br>inside your app.</h2>
+          <p class="lp-sub left light">Checkout, escrow and signed webhooks. Your brand beside ours.</p>
+          <button class="lp-btn white" data-start>Request API access</button>
+        </div>
+        <pre class="lp-code"><code><span class="k">import</span> { ORPay } <span class="k">from</span> <span class="s">'@openreserve/orpay'</span>
 
 <span class="k">const</span> orpay = <span class="k">new</span> ORPay({ apiKey: process.env.ORPAY_KEY })
 
 <span class="k">const</span> escrow = <span class="k">await</span> orpay.createEscrow({
   seller: <span class="s">'@gadgethub'</span>, currency: <span class="s">'NGN'</span>,
-  description: <span class="s">'iPhone 14, inspect on delivery'</span>,
+  description: <span class="s">'iPhone 14'</span>,
   milestones: [{ label: <span class="s">'Item'</span>, amount: <span class="s">'420000'</span> }],
-  shipByDays: <span class="n">3</span>,
 })
-<span class="c">// send the buyer to escrow.url</span></code></pre>
+<span class="c">// the buyer funds escrow.url</span></code></pre>
+      </div>
     </section>
 
-    <section class="l-final">
-      <h2>Your money. In the open.</h2>
-      <p>Free. One minute to start.</p>
-      <button class="l-btn light lg" data-start>Create your wallet</button>
+    <section class="lp-wrap">
+      <div class="lp-final">
+        <p class="lp-eyebrow light">OpenReserve</p>
+        <h2>Your money.<br>Your visibility.</h2>
+        <p>Start with a free wallet. Takes a minute.</p>
+        <button class="lp-btn white lg" data-start>Create your wallet</button>
+      </div>
     </section>
 
-    <footer class="l-foot">
+    <footer class="lp-wrap lp-foot">
       <span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span>
-      <span class="l-built"><span class="l-proto"><img src="/favicon.svg" alt="">Built on the <b>OpenReserve Protocol</b></span><small>Test network · no real money yet</small></span>
-      <a href="/explorer.html">Explorer</a>
+      <span class="lp-proto"><img src="/favicon.svg" alt="">Built on the <b>OpenReserve Protocol</b></span>
+      <a href="/explorer.html">Explorer →</a>
     </footer>
+    <p class="lp-disclose">Test network · No real funds yet</p>
   </div>`
-  const io = 'IntersectionObserver' in window && new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && (e.target.classList.add('in'), io.unobserve(e.target))), { threshold: 0.15 })
-  app.querySelectorAll('.reveal').forEach((el, i) => (io ? ((el.style.transitionDelay = `${(i % 3) * 70}ms`), io.observe(el)) : el.classList.add('in')))
-  app.querySelectorAll('.l-bento article').forEach((el) => (el.onpointermove = (e) => {
-    const r = el.getBoundingClientRect()
-    el.style.setProperty('--mx', `${e.clientX - r.left}px`)
-    el.style.setProperty('--my', `${e.clientY - r.top}px`)
-  }))
-  // Phone mock tilts toward the pointer.
-  const mock = app.querySelector('.l-mock'), phone = app.querySelector('.l-phone')
-  if (mock && matchMedia('(hover: hover)').matches) {
-    mock.onpointermove = (e) => {
-      const r = mock.getBoundingClientRect()
-      const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5
-      phone.style.transform = `perspective(900px) rotateY(${x * 10}deg) rotateX(${-y * 10}deg)`
-    }
-    mock.onpointerleave = () => (phone.style.transform = '')
-  }
-  // Real chain height in the badge.
-  fetch('/v1/status').then((r) => r.json()).then((st) => {
-    const el = document.getElementById('l-live')
-    if (el && st.height > 0) el.textContent = `Live · block ${st.height.toLocaleString()}`
-  }).catch(() => {})
+
   app.querySelectorAll('[data-start]').forEach((b) => (b.onclick = onStart))
   app.querySelectorAll('[data-signin]').forEach((b) => (b.onclick = onSignIn))
+
+  const io = 'IntersectionObserver' in window && new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && (e.target.classList.add('in'), io.unobserve(e.target))), { threshold: 0.15 })
+  app.querySelectorAll('.reveal').forEach((el, i) => (io ? ((el.style.transitionDelay = `${(i % 4) * 70}ms`), io.observe(el)) : el.classList.add('in')))
+
+  const wrap = app.querySelector('.lp-phone-wrap'), phone = app.querySelector('.lp-phone')
+  if (wrap && matchMedia('(hover: hover)').matches) {
+    wrap.onpointermove = (e) => {
+      const r = wrap.getBoundingClientRect()
+      const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5
+      phone.style.transform = `perspective(1000px) rotateY(${x * 10}deg) rotateX(${-y * 8}deg)`
+    }
+    wrap.onpointerleave = () => (phone.style.transform = '')
+  }
+  fetch('/v1/status').then((r) => r.json()).then((st) => {
+    const el = document.getElementById('lp-live')
+    if (el && st.height > 0) el.textContent = `Live on OpenReserve · block ${st.height.toLocaleString()}`
+  }).catch(() => {})
 }

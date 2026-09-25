@@ -39,7 +39,7 @@ run: build
 # ORPay backend (usernames + devnet faucet funded by alice). Needs `make run`.
 orpay-backend:
 	@chmod 600 devnet/alice.json
-	cd apps/orpay/backend && go run . -db ../../../devnet/orpay-users.json -faucet-key ../../../devnet/alice.json \
+	cd apps/orpay/backend && { [ ! -f ../../../.env ] || { set -a; . ../../../.env; set +a; }; } && go run . -db ../../../devnet/orpay-users.json -faucet-key ../../../devnet/alice.json \
 		$$(grep -q '"assets"' ../../../devnet/genesis.json && echo -default-currency NGN -card-payments) \
 		$${ORPAY_ADMINS:+-admins $$ORPAY_ADMINS} -allow-private-webhooks
 

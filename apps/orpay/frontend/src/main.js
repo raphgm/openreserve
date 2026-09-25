@@ -409,11 +409,13 @@ function renderHeader() {
   $('#net').innerHTML = net
 }
 
-// The currencies this wallet can hold: naira first when the naira
-// gateway runs, then ORP.
+// The currencies this wallet can hold. Naira comes first whenever the
+// chain issues it: people save and trade in naira. ORP is the network's
+// fee token and is listed last.
 function currencies() {
   const list = []
-  if (state.gateway) list.push(state.gateway.asset)
+  const naira = state.gateway?.asset ?? state.status?.assets?.find((a) => a.symbol === 'NGN')?.symbol
+  if (naira) list.push(naira)
   list.push('')
   return list
 }
@@ -433,9 +435,9 @@ function renderBalance() {
     el.innerHTML = `
       <p class="label">${primary ? 'Naira balance' : 'Balance'}</p>
       <p class="amount" id="bal"></p>
-      ${primary ? '<p class="sub-balance">ORP <span id="bal-orp"></span></p>' : ''}
+      ${primary ? '<p class="sub-balance" title="ORP pays network fees. It has no cash value.">Network credits: <span id="bal-orp"></span> ORP</p>' : ''}
       <div class="balance-actions">
-        ${primary ? '<button class="ghost small" id="add">＋ Add money</button><button class="ghost small" id="withdraw">↗ Withdraw</button>' : ''}
+        ${primary && state.gateway ? '<button class="ghost small" id="add">＋ Add money</button><button class="ghost small" id="withdraw">↗ Withdraw</button>' : ''}
         ${state.config.faucet ? `<button class="ghost small" id="faucet">Get ${formatAmount(state.config.faucet_amount)} test ORP</button>` : ''}
       </div>`
     const f = $('#faucet')

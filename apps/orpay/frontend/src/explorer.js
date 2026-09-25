@@ -36,13 +36,17 @@ function describe(tx) {
 function shell(content) {
   if (!document.getElementById('view')) {
     app.innerHTML = `
-      <header class="x-header">
-        <a class="logo" href="#/">Explorer</a>
-        <form id="search" class="x-search" role="search">
-          <input id="q" placeholder="Search block, transaction, address, pool or escrow" aria-label="Search" autocomplete="off">
-        </form>
-        <a class="chip" href="/">Open wallet</a>
-      </header>
+      <div class="x-top">
+        <header class="x-header">
+          <a class="logo" href="#/">Explorer</a>
+          <form id="search" class="x-search" role="search">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+            <input id="q" placeholder="Search block, transaction, address, pool or escrow" aria-label="Search" autocomplete="off">
+          </form>
+          <a class="chip" href="/">Open wallet</a>
+        </header>
+        <div id="hero"></div>
+      </div>
       <main class="x-main" id="view"></main>`
     document.getElementById('search').onsubmit = (e) => {
       e.preventDefault()
@@ -52,7 +56,25 @@ function shell(content) {
     }
   }
   document.getElementById('view').innerHTML = content
+  document.getElementById('hero').innerHTML = hero
+  document.body.classList.toggle('x-home', !!hero)
+  hero = ''
 }
+
+let hero = ''
+const icon = {
+  height: '<path d="M4 7h16M4 12h16M4 17h10"/>',
+  supply: '<circle cx="12" cy="12" r="8"/><path d="M12 8v8M9.5 10.5h4a1.5 1.5 0 0 1 0 3h-3a1.5 1.5 0 0 0 0 3h4"/>',
+  naira: '<path d="M7 18V6l10 12V6M5 10.5h14M5 13.5h14"/>',
+  accounts: '<circle cx="9" cy="9" r="3.2"/><path d="M3.5 18a5.5 5.5 0 0 1 11 0M16 7.5a3 3 0 0 1 0 5.5M17.5 18a5 5 0 0 0-2-4"/>',
+  block: '<rect x="4" y="4" width="16" height="16" rx="3"/><path d="M4 10h16"/>',
+  tx: '<path d="M5 9h13l-3-3M19 15H6l3 3"/>',
+}
+const svg = (name) => `<svg viewBox="0 0 24 24" aria-hidden="true">${icon[name]}</svg>`
+const stat = (name, label, value, note) =>
+  `<div class="card x-stat"><span class="x-ico">${svg(name)}</span><span class="label">${label}</span><strong>${value}</strong><small>${note}</small></div>`
+const empty = (name, title, hint) =>
+  `<li class="empty"><span class="x-ico big">${svg(name)}</span><strong>${title}</strong><small>${hint}</small></li>`
 
 async function search(q) {
   if (!q) return
@@ -79,18 +101,24 @@ async function home() {
   const blocks = st.height ? (await call(`/v1/blocks?from=${from}&limit=15`)).reverse() : []
   const txs = blocks.flatMap((b) => b.txs.map((tx) => ({ tx, height: b.header.height, time: b.header.time }))).slice(0, 12)
   const assets = st.assets ?? []
+  hero = `
+    <div class="x-hero">
+      <span class="x-live"><span class="dot on"></span>${esc(st.chain_id)} · ${st.height ? `block ${st.height.toLocaleString()}` : 'waiting for first block'}</span>
+      <h1>Every ajo, escrow and payment, <span>in the open.</span></h1>
+      <p>Look up any block, transaction, wallet, savings pool or escrow on OpenReserve.</p>
+    </div>`
   shell(`
     <section class="x-stats">
-      <div class="card"><span class="label">Height</span><strong>${st.height.toLocaleString()}</strong><small>${st.height ? ago(st.tip_time) : 'no blocks yet'}</small></div>
-      <div class="card"><span class="label">ORP supply</span><strong>${formatMoney(st.supply, '')}</strong><small>${formatMoney(st.burned, '')} burned in fees</small></div>
-      ${assets.map((a) => `<div class="card"><span class="label">${esc(a.name || a.symbol)} issued</span><strong>${formatMoney(a.supply, a.symbol)}</strong><small>issuer ${short(a.issuer)}</small></div>`).join('')}
-      <div class="card"><span class="label">Accounts</span><strong>${st.accounts.toLocaleString()}</strong><small>${st.mempool_size} pending txs</small></div>
+      ${stat('height', 'Block height', st.height.toLocaleString(), st.height ? `last block ${ago(st.tip_time)}` : 'no blocks yet')}
+      ${stat('supply', 'ORP supply', formatMoney(st.supply, ''), `${formatMoney(st.burned, '')} burned in fees`)}
+      ${assets.map((a) => stat('naira', `${esc(a.name || a.symbol)} issued`, formatMoney(a.supply, a.symbol), `issuer ${short(a.issuer)}`)).join('')}
+      ${stat('accounts', 'Accounts', st.accounts.toLocaleString(), `${st.mempool_size} pending transaction${st.mempool_size === 1 ? '' : 's'}`)}
     </section>
     <div class="x-cols">
       <section class="card"><h2>Latest blocks</h2><ul class="x-list">${blocks
         .map((b) => `<li><span class="x-badge">#${b.header.height}</span><span class="who"><strong>${link('block', b.header.height, `Block ${b.header.height}`)}</strong><small>${b.txs.length} tx · ${ago(b.header.time)}</small></span></li>`)
-        .join('') || '<li class="empty">No blocks yet.</li>'}</ul></section>
-      <section class="card"><h2>Latest transactions</h2><ul class="x-list">${(await Promise.all(txs.map(txRow))).join('') || '<li class="empty">No transactions yet.</li>'}</ul></section>
+        .join('') || empty('block', 'No blocks yet', 'Blocks appear here as soon as the chain produces them.')}</ul></section>
+      <section class="card"><h2>Latest transactions</h2><ul class="x-list">${(await Promise.all(txs.map(txRow))).join('') || empty('tx', 'No transactions yet', 'Payments, ajo contributions and escrows will show up here.')}</ul></section>
     </div>
     <p class="x-foot muted small-text">Chain ${esc(st.chain_id)} · state root <span class="mono">${short(st.state_root)}</span></p>`)
   clearTimeout(timer)

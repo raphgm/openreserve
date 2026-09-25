@@ -493,3 +493,37 @@ header .logo.cobrand ~ .net { visibility: hidden; }
   -webkit-background-clip: text; background-clip: text; color: transparent;
 }
 .ghost-chip { text-decoration: none; background: transparent; box-shadow: inset 0 0 0 1px var(--border); color: var(--muted); margin-right: 6px; }
+
+/* Explorer: brand hero, iconed stats, friendly empty states */
+.x-top { position: relative; }
+body.x-home .x-top {
+  background:
+    radial-gradient(60% 120% at 0% 0%, rgb(109 40 217 / .75), transparent 60%),
+    radial-gradient(60% 120% at 100% 100%, rgb(34 211 238 / .45), transparent 60%),
+    linear-gradient(135deg, #1a0b4d, #070b2a 55%, #0a2a7a);
+  padding-bottom: 72px; color: #fff;
+}
+body.x-home .x-header .logo { color: #fff; }
+body.x-home .x-header a.chip { background: rgb(255 255 255 / .1); color: #fff; box-shadow: inset 0 0 0 1px rgb(255 255 255 / .2); }
+.x-search { position: relative; }
+.x-search svg { position: absolute; left: 16px; top: 50%; translate: 0 -50%; width: 18px; height: 18px; fill: none; stroke: var(--muted); stroke-width: 2; stroke-linecap: round; pointer-events: none; }
+.x-search input { padding-left: 44px; }
+body.x-home .x-search input { background: rgb(255 255 255 / .96); border-color: transparent; box-shadow: 0 16px 40px -16px rgb(0 0 0 / .5); }
+.x-hero { max-width: 1100px; margin: 0 auto; padding: 28px 16px 8px; }
+.x-hero h1 { font-size: clamp(1.7rem, 4vw, 2.6rem); font-weight: 800; letter-spacing: -.035em; line-height: 1.1; margin: 14px 0 10px; max-width: 18ch; }
+.x-hero h1 span { background: linear-gradient(90deg, #22d3ee, #818cf8 60%, #c084fc); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.x-hero p { color: rgb(255 255 255 / .7); margin: 0; max-width: 46ch; }
+.x-live { display: inline-flex; align-items: center; gap: 8px; font-size: .8rem; font-weight: 600; padding: 6px 12px; border-radius: 999px; background: rgb(255 255 255 / .1); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .15); }
+.x-live .dot { animation: x-pulse 2s infinite; }
+@keyframes x-pulse { 50% { box-shadow: 0 0 0 6px rgb(16 185 129 / 0); } }
+body.x-home .x-main { margin-top: -56px; position: relative; }
+.x-stat { position: relative; overflow: hidden; }
+.x-stat::after { content: ''; position: absolute; inset: 0 0 auto; height: 3px; background: var(--brand-grad); }
+.x-ico { width: 36px; height: 36px; border-radius: 11px; display: grid; place-items: center; background: rgb(79 70 229 / .09); margin-bottom: 6px; }
+.x-ico svg { width: 20px; height: 20px; fill: none; stroke: var(--brand-1); stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
+.x-ico.big { width: 52px; height: 52px; border-radius: 16px; margin: 0 0 4px; }
+.x-ico.big svg { width: 26px; height: 26px; }
+.x-list li.empty { flex-direction: column; text-align: center; gap: 4px; padding: 36px 16px; border: none; }
+.x-list li.empty strong { color: var(--text); }
+.x-list li.empty small { white-space: normal; max-width: 34ch; }
+.x-cols h2 { font-size: 1.05rem; }

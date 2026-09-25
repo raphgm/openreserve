@@ -153,13 +153,20 @@ function renderUnlock() {
     <main class="narrow">
       <div class="brand"><span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span></div>
       <h1>Welcome back</h1>
-      <p class="muted mono">${addr ? short(addr) : ''}</p>
+      ${addr ? `<div class="who-chip"><span class="avatar" style="--hue:${parseInt(addr.slice(0, 4), 16) % 360}">${addr.slice(0, 2).toUpperCase()}</span><span><small>Your wallet</small><span class="mono">${short(addr)}</span></span></div>` : ''}
       <form id="f" class="stack">
-        <label>Password<input type="password" id="pw" autocomplete="current-password" autofocus required></label>
+        <label>Password
+          <span class="pw-field"><input type="password" id="pw" autocomplete="current-password" autofocus required placeholder="Enter your password">
+          <button type="button" class="pw-eye" id="eye" aria-label="Show password">Show</button></span>
+        </label>
         <p class="error" id="err"></p>
         <button class="primary" id="go">Unlock</button>
       </form>
-      <button class="link" id="forget">Use a different wallet</button>
+      <div class="unlock-links">
+        <button class="link" id="restore">Forgot password?</button>
+        <button class="link muted-link" id="forget">Use a different wallet</button>
+      </div>
+      <p class="trust"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Your keys are encrypted and never leave this device.</p>
     </main>`
   $('#f').onsubmit = async (e) => {
     e.preventDefault()
@@ -172,6 +179,13 @@ function renderUnlock() {
       $('#go').disabled = false
     }
   }
+  $('#eye').onclick = () => {
+    const pw = $('#pw'), show = pw.type === 'password'
+    pw.type = show ? 'text' : 'password'
+    $('#eye').textContent = show ? 'Hide' : 'Show'
+    $('#eye').setAttribute('aria-label', show ? 'Hide password' : 'Show password')
+  }
+  $('#restore').onclick = renderImport
   $('#forget').onclick = () => {
     if (confirm('Remove this wallet from this device? You can only get it back with its recovery key.')) {
       clearVault()

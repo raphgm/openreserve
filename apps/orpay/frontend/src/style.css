@@ -527,3 +527,33 @@ body.x-home .x-main { margin-top: -56px; position: relative; }
 .x-list li.empty strong { color: var(--text); }
 .x-list li.empty small { white-space: normal; max-width: 34ch; }
 .x-cols h2 { font-size: 1.05rem; }
+
+/* Onboarding and unlock: brand backdrop, glass card */
+body:has(main.narrow) {
+  background:
+    radial-gradient(55% 60% at 0% 0%, rgb(109 40 217 / .8), transparent 65%),
+    radial-gradient(55% 60% at 100% 100%, rgb(34 211 238 / .5), transparent 65%),
+    linear-gradient(135deg, #1a0b4d, #070b2a 55%, #0a2a7a);
+  min-height: 100vh;
+}
+body:has(main.narrow) main.narrow {
+  background: rgb(255 255 255 / .97); border: 1px solid rgb(255 255 255 / .6);
+  box-shadow: 0 30px 80px -24px rgb(0 0 0 / .55);
+}
+main.narrow h1 { letter-spacing: -.035em; }
+.who-chip { display: flex; align-items: center; gap: 12px; padding: 10px 14px 10px 10px; background: var(--surface-2); border: 1px solid var(--border); border-radius: 16px; }
+.who-chip .avatar {
+  width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; flex: none;
+  color: #fff; font-weight: 800; font-size: .85rem;
+  background: linear-gradient(135deg, hsl(var(--hue) 75% 55%), hsl(calc(var(--hue) + 60) 80% 50%));
+}
+.who-chip > span:last-child { display: flex; flex-direction: column; gap: 1px; }
+.who-chip small { color: var(--muted); font-size: .75rem; font-weight: 500; }
+.who-chip .mono { font-size: .95rem; font-weight: 600; }
+.pw-field { position: relative; display: block; }
+.pw-field input { padding-right: 72px; }
+.pw-eye { position: absolute; right: 8px; top: 50%; translate: 0 -50%; background: none; border: none; box-shadow: none; color: var(--brand-1); font-size: .82rem; font-weight: 600; padding: 6px 10px; width: auto; }
+.unlock-links { display: flex; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.muted-link { color: var(--muted) !important; font-weight: 500 !important; }
+.trust { display: flex; align-items: center; justify-content: center; gap: 8px; margin: 4px 0 0; padding-top: 16px; border-top: 1px solid var(--border); color: var(--muted); font-size: .8rem; }
+.trust svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }

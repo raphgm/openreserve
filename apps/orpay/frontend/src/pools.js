@@ -1,7 +1,7 @@
 // Savings pools (ajo/esusu). Everything shown here is read from the chain:
 // the pool's balance, who has paid this round, who has received their pot,
 // who is next, and a timeline of every join, contribution and claim.
-import { api, assetLabel, formatMoney, node, parseAmount, poolOp, waitForCommit } from './orp.js'
+import { api, nairaEq, assetLabel, formatMoney, node, parseAmount, poolOp, waitForCommit } from './orp.js'
 import { renderSVG } from 'uqr'
 
 let ctx // { state, $, esc, short, toast, nameOf, resolveRecipient, root }
@@ -290,7 +290,7 @@ export async function renderPool(id, preloaded) {
       <button class="link back light" id="back">← Pools</button>
       <div class="pool-title"><h2>${ctx.esc(p.name)}</h2>${statusChip(p)}</div>
       <p class="label">Pool balance</p>
-      <p class="amount">${money(p.balance)}</p>
+      <p class="amount">${money(p.balance)}</p>${nairaEq(p.balance, p.asset ?? '')}
       <div class="pool-stats">
         <div><span>Pot</span><strong>${money(pot)}</strong></div>
         <div><span>Each pays</span><strong>${money(p.contribution)}</strong></div>
@@ -377,7 +377,7 @@ export async function renderInvite(id) {
       <button class="link back light" id="back">← Pools</button>
       <div class="pool-title"><h2>${ctx.esc(d.name)}</h2><span class="chip-s info">Invite</span></div>
       <p class="label">Each member pays</p>
-      <p class="amount">${money(d.contribution)}</p>
+      <p class="amount">${money(d.contribution)}</p>${nairaEq(d.contribution, d.asset ?? '')}
       <div class="pool-stats">
         <div><span>Members</span><strong>${d.members.length} of ${d.slots}</strong></div>
         <div><span>Rounds</span><strong>${d.round_secs ? cadence(d.round_secs) : 'no due dates'}</strong></div>

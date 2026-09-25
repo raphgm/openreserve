@@ -38,6 +38,14 @@ export function formatMoney(micro, asset = '') {
   return `${formatAmount(micro)} ${asset || 'ORP'}`
 }
 
+// Reference rate for showing ORP in naira: 1 ORP = ₦1 (display only).
+export const NAIRA_PER_ORP = 1
+export function nairaEq(micro, asset = '') {
+  if (asset) return ''
+  const naira = (Number(BigInt(micro) / 10_000n) / 100) * NAIRA_PER_ORP
+  return `<small class="naira-eq">≈ ₦${naira.toLocaleString('en-NG', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</small>`
+}
+
 export const assetLabel = (asset) => (asset === 'NGN' ? 'Naira (₦)' : asset || 'ORP')
 
 export function formatAmount(micro) {

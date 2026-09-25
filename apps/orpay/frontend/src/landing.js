@@ -33,7 +33,7 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
       <div>
         <span class="l-pill"><span class="dot on"></span>Ajo and escrow, on an open ledger</span>
         <h1>Save together.<br>Buy safely.<br><span>Everyone can see it's fair.</span></h1>
-        <p class="l-lead">ORPay runs rotating savings pools and inspect-before-you-pay escrow on a public ledger. No one can quietly move the money, not even us.</p>
+        <p class="l-lead">Ajo and escrow on an open ledger. Nobody can touch the money. Not even us.</p>
         <div class="l-cta">
           <button class="l-btn primary lg" data-start>Create a free wallet</button>
           <a class="l-btn ghost lg" href="#how">See how it works</a>
@@ -65,32 +65,36 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
     </section>
 
     <section class="l-sec" id="features">
-      <h2>Everything a trusted payment needs</h2>
-      <p class="l-sub">Two things people in Nigeria do every day, made safe and transparent.</p>
-      <div class="l-grid">
-        <article>${icon('ajo')}<h3>Ajo / esusu pools</h3><p>Everyone sees who paid, who has collected and who is next. The pot pays out automatically, and deposits cover anyone who defaults.</p></article>
-        <article>${icon('escrow')}<h3>Inspect-before-pay escrow</h3><p>The buyer's money is locked, not sent. The seller gets paid only after the goods are checked, with chat, photos and a neutral arbiter.</p></article>
-        <article>${icon('send')}<h3>Send by @username</h3><p>Pay anyone in seconds with a username or QR code, in naira or ORP, for a flat ₦20.</p></article>
-        <article>${icon('eye')}<h3>Open ledger</h3><p>Every contribution, payout and release is on a public explorer anyone can check. Transparency, not trust-me.</p></article>
-        <article>${icon('shield')}<h3>Your keys, your money</h3><p>Your wallet key is encrypted on your device. Trusted friends can help you recover it, but no company can move your funds.</p></article>
-        <article>${icon('code')}<h3>For businesses</h3><p>Add ORPay checkout and escrow to your app with a few lines of code. Your brand sits beside ours.</p></article>
+      <h2>Money, minus the drama.</h2>
+      <div class="l-bento">
+        <article class="big reveal">
+          ${icon('ajo')}<h3>Ajo that runs itself</h3><p>See who paid. See who's next.</p>
+          <div class="v-ajo"><span style="--h:260">AO</span><span style="--h:190">TK</span><span style="--h:320">FB</span><span class="next" style="--h:150">YOU</span><span class="todo">EM</span><span class="todo">NI</span></div>
+        </article>
+        <article class="big reveal">
+          ${icon('escrow')}<h3>Inspect, then pay</h3><p>Money waits until you're happy.</p>
+          <div class="v-esc"><span class="on">Locked</span><i></i><span class="on">Delivered</span><i></i><span>Released</span></div>
+        </article>
+        <article class="reveal">${icon('send')}<h3>Pay by @username</h3><p>Flat ₦20.</p></article>
+        <article class="reveal">${icon('eye')}<h3>Open ledger</h3><p>Every kobo, visible.</p></article>
+        <article class="reveal">${icon('shield')}<h3>Your keys</h3><p>No one else can move it.</p></article>
+        <article class="reveal">${icon('code')}<h3>For businesses</h3><p>Plug in with one SDK.</p></article>
       </div>
     </section>
 
     <section class="l-sec" id="how">
-      <h2>How escrow works</h2>
-      <p class="l-sub">No returns, no surprises: buyers read and accept the terms before paying.</p>
+      <h2>Escrow in three taps.</h2>
       <ol class="l-steps">
-        <li><span>1</span><h3>Buyer locks payment</h3><p>After accepting the seller's terms, the money is held on the ledger, not by the seller.</p></li>
-        <li><span>2</span><h3>Seller dispatches</h3><p>Both sides chat and share photos. Deadlines are enforced by the ledger itself.</p></li>
-        <li><span>3</span><h3>Buyer inspects and releases</h3><p>Happy? Release. Problem? An arbiter reviews the evidence and decides the split.</p></li>
+        <li class="reveal"><span>1</span><h3>Lock</h3><p>Buyer pays into escrow.</p></li>
+        <li class="reveal"><span>2</span><h3>Check</h3><p>Goods arrive. Inspect them.</p></li>
+        <li class="reveal"><span>3</span><h3>Release</h3><p>Seller gets paid. Done.</p></li>
       </ol>
     </section>
 
     <section class="l-sec l-dev" id="developers">
       <div>
         <h2>Accept ORPay in your app</h2>
-        <p class="l-sub left">Create checkouts and escrows from your server, get signed webhooks when money moves, and show "<i>YourBrand</i> × ORPay" with your logo, fetched from your website automatically.</p>
+        <p class="l-sub left">Checkout, escrow and webhooks. Your logo beside ours.</p>
         <button class="l-btn dark" data-start>Request API access</button>
       </div>
       <pre class="l-code"><code><span class="k">import</span> { ORPay } <span class="k">from</span> <span class="s">'@openreserve/orpay'</span>
@@ -107,8 +111,8 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
     </section>
 
     <section class="l-final">
-      <h2>Start saving and trading with confidence</h2>
-      <p>Free to open. Takes a minute. Your keys never leave your device.</p>
+      <h2>Your money. In the open.</h2>
+      <p>Free. One minute to start.</p>
       <button class="l-btn light lg" data-start>Create your wallet</button>
     </section>
 
@@ -118,6 +122,13 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
       <a href="/explorer.html">Explorer</a>
     </footer>
   </div>`
+  const io = 'IntersectionObserver' in window && new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && (e.target.classList.add('in'), io.unobserve(e.target))), { threshold: 0.15 })
+  app.querySelectorAll('.reveal').forEach((el, i) => (io ? ((el.style.transitionDelay = `${(i % 3) * 70}ms`), io.observe(el)) : el.classList.add('in')))
+  app.querySelectorAll('.l-bento article').forEach((el) => (el.onpointermove = (e) => {
+    const r = el.getBoundingClientRect()
+    el.style.setProperty('--mx', `${e.clientX - r.left}px`)
+    el.style.setProperty('--my', `${e.clientY - r.top}px`)
+  }))
   app.querySelectorAll('[data-start]').forEach((b) => (b.onclick = onStart))
   app.querySelectorAll('[data-signin]').forEach((b) => (b.onclick = onSignIn))
 }

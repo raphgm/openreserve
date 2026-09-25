@@ -20,7 +20,7 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
     <nav class="lp-nav">
       <a class="logo" href="#top" aria-label="ORPay"><span class="logo-pay">Pay</span></a>
       <div class="lp-links">
-        <a href="#features">Features</a><a href="#escrow">How it works</a><a href="#developers">Developers</a><a href="/explorer.html">Explorer</a>
+        <a href="#product">Product</a><a href="#escrow">Escrow</a><a href="#developers">Developers</a><a href="/explorer.html">Explorer</a>
       </div>
       <div class="lp-nav-cta">
         <button class="lp-btn ghost" data-signin>${signInLabel}</button>
@@ -33,15 +33,16 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
       <div class="lp-wrap lp-hero-grid">
         <div>
           <span class="lp-pill"><span class="dot on"></span><span id="lp-live">Live on the OpenReserve network</span></span>
-          <h1>Money should<br><span class="lp-grad">just work.</span></h1>
-          <p class="lp-lead">Send money, save in ajo and pay through escrow. Every step visible.</p>
-          <div class="lp-cta">
-            <button class="lp-btn ink lg" data-start>Create a wallet</button>
-            <a class="lp-btn ghost lg" href="#escrow">Explore payments</a>
-          </div>
-          <ul class="lp-ticks">
-            <li>${svg(I.check)}Transparent settlement</li><li>${svg(I.check)}Escrow built in</li><li>${svg(I.check)}Flat ₦20 fee</li>
+          <h1>Payments without<br><span class="lp-grad">the uncertainty.</span></h1>
+          <ul class="lp-triad">
+            <li><span>01</span>Send money.</li>
+            <li><span>02</span>Protect transactions.</li>
+            <li><span>03</span>Release when it's done.</li>
           </ul>
+          <div class="lp-cta">
+            <button class="lp-btn ink lg" data-start>Get started</button>
+            <a class="lp-btn ghost lg" href="#escrow">Explore escrow</a>
+          </div>
         </div>
 
         <div class="lp-phone-wrap" aria-hidden="true">
@@ -72,55 +73,53 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
       </div>
     </section>
 
-    <section class="lp-strip"><div class="lp-wrap"><span>OpenReserve</span><span>Gabis Payments</span><span>Paynautik</span><span>SSLabs</span><span>ORPay</span></div></section>
-
-    <section class="lp-wrap lp-sec" id="features">
-      <p class="lp-eyebrow">Payments, done right</p>
-      <h2>Everything you need<br>to move money.</h2>
-      <div class="lp-cards">
-        <article class="reveal"><i class="c1">${svg(I.up)}</i><h3>Send instantly</h3><p>Pay anyone by @username or QR.</p></article>
-        <article class="reveal"><i class="c3">${svg(I.escrow)}</i><h3>Built-in escrow</h3><p>Funds wait until both sides are happy.</p></article>
-        <article class="reveal"><i class="c4">${svg(I.ajo)}</i><h3>Ajo pools</h3><p>See who paid and who's next.</p></article>
-        <article class="reveal"><i class="c2">${svg(I.eye)}</i><h3>Open ledger</h3><p>Every payment can be verified.</p></article>
+    <section class="lp-strip">
+      <div class="lp-wrap">
+        <span>${svg('<path d="M4 7h16M4 12h16M4 17h10"/>')}OpenReserve</span>
+        <span>${svg(I.escrow)}Secure</span>
+        <span>${svg(I.eye)}Transparent</span>
+        <span>${svg('<path d="m8 8-4 4 4 4M16 8l4 4-4 4"/>')}API</span>
       </div>
     </section>
 
-    <section class="lp-band" id="escrow">
+    <section class="lp-wrap lp-sec center" id="product">
+      <h2>One payment.<br><span class="lp-grad">Every step visible.</span></h2>
+      <div class="lp-trio">
+        <article class="reveal"><i class="c1">${svg(I.up)}</i><h3>Send</h3><p>Pay by @username or QR in seconds.</p></article>
+        <article class="reveal feature"><i class="c3">${svg(I.escrow)}</i><h3>Escrow</h3><p>Money waits until the goods arrive.</p></article>
+        <article class="reveal"><i class="c2">${svg(I.down)}</i><h3>Receive</h3><p>Get paid, see it land instantly.</p></article>
+      </div>
+    </section>
+
+    <section class="lp-life" id="escrow">
       <div class="lp-wrap lp-sec center">
-        <p class="lp-eyebrow">Escrow</p>
-        <h2>Payments with <span class="lp-grad">less drama.</span></h2>
-        <p class="lp-sub">Money stays protected until the deal is done. No returns, so buyers accept the terms first.</p>
-        <ol class="lp-steps">
-          <li class="reveal"><span>1</span><h3>Lock</h3><p>Buyer puts the amount into escrow.</p></li>
-          <li class="reveal"><span>2</span><h3>Inspect</h3><p>Buyer receives and checks the goods.</p></li>
-          <li class="reveal"><span>3</span><h3>Release</h3><p>Seller is paid when it's complete.</p></li>
-        </ol>
-      </div>
-    </section>
-
-    <section class="lp-wrap lp-sec lp-split">
-      <div>
-        <p class="lp-eyebrow">Transparency</p>
-        <h2>Know where<br>your money is.</h2>
-        <p class="lp-sub left">Every payment has a clear state. No guessing, no hidden steps.</p>
-      </div>
-      <div class="lp-track reveal">
-        <div class="lp-track-head"><span><small>Transaction</small><b>iPhone 14 · Escrow</b></span><em>Delivered</em></div>
-        <div class="lp-track-steps">
-          <span class="done"><i>${svg(I.check)}</i>Locked</span><b></b>
-          <span class="done green"><i>${svg(I.check)}</i>Delivered</span><b class="dim"></b>
-          <span><i>3</i>Released</span>
+        <p class="lp-eyebrow light">Escrow lifecycle</p>
+        <h2>From pending to released.</h2>
+        <div class="lp-flow reveal">
+          <div class="lp-flow-card">
+            <div class="lp-flow-top"><span><small>Escrow payment</small><b>iPhone 14 Pro</b></span><strong>₦420,000</strong></div>
+            <ol class="lp-flow-steps">
+              <li class="done"><i>${svg(I.check)}</i><b>Pending</b><small>Terms accepted</small></li>
+              <li class="done"><i>${svg(I.check)}</i><b>Funded</b><small>Money locked</small></li>
+              <li class="now"><i></i><b>Shipped</b><small>On its way</small></li>
+              <li><i></i><b>Released</b><small>Seller paid</small></li>
+            </ol>
+          </div>
         </div>
-        <div class="lp-track-amt"><span>Escrow amount</span><strong>₦420,000</strong></div>
+        <p class="lp-sub light">Nobody can move locked money. Not the seller, not the buyer, not us. Disputes go to a neutral arbiter.</p>
       </div>
     </section>
 
     <section class="lp-dark" id="developers">
       <div class="lp-wrap lp-sec lp-split">
         <div>
-          <p class="lp-eyebrow light">For developers</p>
-          <h2>Put payments<br>inside your app.</h2>
-          <p class="lp-sub left light">Checkout, escrow and signed webhooks. Your brand beside ours.</p>
+          <p class="lp-eyebrow light">Built for businesses</p>
+          <h2>Payments inside<br>your app.</h2>
+          <ul class="lp-biz">
+            <li>${svg(I.check)}Checkout and escrow APIs</li>
+            <li>${svg(I.check)}Signed webhooks</li>
+            <li>${svg(I.check)}Your logo beside ours</li>
+          </ul>
           <button class="lp-btn white" data-start>Request API access</button>
         </div>
         <pre class="lp-code"><code><span class="k">import</span> { ORPay } <span class="k">from</span> <span class="s">'@openreserve/orpay'</span>
@@ -138,10 +137,9 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
 
     <section class="lp-wrap">
       <div class="lp-final">
-        <p class="lp-eyebrow light">OpenReserve</p>
-        <h2>Your money.<br>Your visibility.</h2>
-        <p>Start with a free wallet. Takes a minute.</p>
-        <button class="lp-btn white lg" data-start>Create your wallet</button>
+        <h2>Build payments with ORPay.</h2>
+        <p>Free to start. Live on the OpenReserve network.</p>
+        <button class="lp-btn white lg" data-start>Get started</button>
       </div>
     </section>
 

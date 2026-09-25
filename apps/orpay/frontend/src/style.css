@@ -722,3 +722,8 @@ body:has(.landing) { background: #f7f8fc; }
 }
 .landing { position: relative; isolation: isolate; }
 .landing::before { left: 50%; right: auto; width: 100vw; translate: -50% 0; }
+.l-built { display: flex; flex-direction: column; align-items: center; gap: 6px; }
+.l-proto { display: inline-flex; align-items: center; gap: 8px; padding: 6px 14px 6px 6px; border-radius: 999px; background: #fff; box-shadow: 0 0 0 1px var(--border); color: var(--ink); font-size: .88rem; }
+.l-proto img { width: 22px; height: 22px; border-radius: 7px; }
+.l-proto b { background: var(--brand-grad); -webkit-background-clip: text; background-clip: text; color: transparent; }
+.l-built small { font-size: .75rem; }

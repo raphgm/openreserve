@@ -118,7 +118,7 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
 
     <footer class="l-foot">
       <span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span>
-      <span>Built on OpenReserve · Test network, no real money yet</span>
+      <span class="l-built"><span class="l-proto"><img src="/favicon.svg" alt="">Built on the <b>OpenReserve Protocol</b></span><small>Test network · no real money yet</small></span>
       <a href="/explorer.html">Explorer</a>
     </footer>
   </div>`

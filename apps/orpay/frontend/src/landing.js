@@ -44,6 +44,10 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
       </div>
       <div class="l-mock" aria-hidden="true">
         <div class="l-phone">
+          <i class="l-btn-side a"></i><i class="l-btn-side b"></i><i class="l-btn-side c"></i><i class="l-btn-side d"></i>
+          <div class="l-screen">
+          <div class="l-status"><b>9:41</b><span class="l-island"></span><span class="l-sig"><i></i><i></i><i></i><i></i><svg viewBox="0 0 16 12"><path d="M8 11.5 1 4.3a10 10 0 0 1 14 0z"/></svg><span class="l-batt"><span></span></span></span></div>
+          <div class="l-apphead"><span class="logo" aria-hidden="true"><span class="logo-pay">Pay</span></span><span class="l-me">AO</span></div>
           <div class="l-bal"><small>Naira balance</small><strong>₦248,500.00</strong><span>+₦50,000 ajo payout today</span></div>
           <div class="l-card">
             <div class="l-row"><b>Market women ajo</b><em>Round 4 of 6</em></div>
@@ -55,6 +59,9 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
             <div class="l-row"><b>iPhone 14 · escrow</b><em class="ok">Delivered</em></div>
             <small class="l-note">₦420,000 held until you inspect it</small>
             <div class="l-btns"><span class="yes">Release</span><span>Dispute</span></div>
+          </div>
+          <div class="l-tabs"><span class="on">Home</span><span>Pools</span><span>Escrow</span></div>
+          <span class="l-home-ind"></span>
           </div>
         </div>
       </div>

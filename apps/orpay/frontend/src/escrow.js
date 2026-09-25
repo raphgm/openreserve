@@ -1,7 +1,7 @@
 // Smart escrow: funds locked on-chain between a buyer and a seller, released
 // in milestones by the buyer, with an independent arbiter for disputes and
 // timeouts so money is never stuck. Everything shown is read from the chain.
-import { api, nairaEq, assetLabel, escrowOp, formatMoney, node, parseAmount, partnerMark, waitForCommit } from './orp.js'
+import { api, assetLabel, escrowOp, formatMoney, node, parseAmount, partnerMark, waitForCommit } from './orp.js'
 
 let ctx
 
@@ -270,7 +270,7 @@ export async function renderEscrow(id, preloaded) {
       <div class="pool-title"><h2>${req?.app ? ctx.esc(req.app.brand_name || req.app.name) : e.ref ? `#${ctx.esc(e.ref)}` : 'Escrow'}</h2>${statusChip(e.status)}</div>
       ${req?.description ? `<p class="hero-sub">${ctx.esc(req.description)}</p>` : ''}
       <p class="label">${open ? 'Locked in escrow' : 'Escrow total'}</p>
-      <p class="amount">${money(open ? e.balance : total(e))}</p>${nairaEq(open ? e.balance : total(e), e.asset ?? '')}
+      <p class="amount">${money(open ? e.balance : total(e))}</p>
       <div class="pool-stats">
         <div><span>Buyer</span><strong>${label(e.buyer)}</strong></div>
         <div><span>Seller</span><strong>${label(e.seller)}</strong></div>
@@ -402,7 +402,7 @@ export async function renderFundRequest(id) {
         <span class="who"><strong>${ctx.esc(app.brand_name || app.name)} ${app.status === 'approved' ? '<span class="chip-s ok">Verified</span>' : '<span class="chip-s warn">Not verified</span>'}</strong>
         <small>${ctx.esc(r.description || 'Payment held in escrow until milestones are approved')}</small></span>
       </div>
-      <p class="amount">${money(r.total)}</p>${nairaEq(r.total, r.asset ?? '')}
+      <p class="amount">${money(r.total)}</p>
       <dl class="summary">
         <dt>Paid to</dt><dd>${label(r.seller)}</dd>
         <dt>Disputes settled by</dt><dd>${label(r.arbiter)}</dd>

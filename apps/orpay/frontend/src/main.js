@@ -1,6 +1,6 @@
 import './style.css'
 import {
-  addressOf, api, assetLabel, nairaEq, partnerMark, feeFor, formatAmount, formatMoney, fromHex, gateway, isAddress, newSeed, node, parseAmount,
+  addressOf, api, assetLabel, partnerMark, feeFor, formatAmount, formatMoney, fromHex, gateway, isAddress, newSeed, node, parseAmount,
   payLink, readPayLink, registerMessage, seedToWords, send, signMessage, waitForCommit, wordsToSeed,
 } from './orp.js'
 import { renderSVG } from 'uqr'
@@ -459,7 +459,7 @@ function renderBalance() {
   }
   $('#bal').innerHTML = primary
     ? esc(formatMoney(balanceOf(primary), primary))
-    : `${esc(formatAmount(balanceOf('')))} <span class="unit">ORP</span>${nairaEq(balanceOf(''))}`
+    : `${esc(formatAmount(balanceOf('')))} <span class="unit">ORP</span>`
   if ($('#bal-orp')) $('#bal-orp').textContent = formatAmount(balanceOf(''))
 }
 

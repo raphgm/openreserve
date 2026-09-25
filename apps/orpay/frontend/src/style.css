@@ -758,5 +758,3 @@ li.empty strong { color: var(--text); font-size: .95rem; }
 li.empty small { color: var(--muted); }
 .tabbar button { min-width: 0; }
 .tabbar button[aria-current='page'] { background: linear-gradient(135deg, rgb(79 70 229 / .1), rgb(6 182 212 / .1)); }
-.naira-eq { display: block; font-size: .9rem; font-weight: 600; letter-spacing: 0; opacity: .75; margin-top: 2px; }
-.amount .naira-eq { font-size: .45em; }

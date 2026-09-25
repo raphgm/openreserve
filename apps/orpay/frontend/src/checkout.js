@@ -1,7 +1,7 @@
 // Hosted checkout for partner apps: /?invoice=<id>. The customer pays the
 // app's settlement address on-chain from their own wallet; the invoice turns
 // paid once the payment lands, and they get a receipt.
-import { api, nairaEq, feeFor, formatMoney, gateway, partnerMark, providerLabel, send, waitForCommit } from './orp.js'
+import { api, feeFor, formatMoney, gateway, partnerMark, providerLabel, send, waitForCommit } from './orp.js'
 import { openCheckout } from './native.js'
 
 let ctx
@@ -53,7 +53,7 @@ export async function renderCheckout(id, cardRef) {
           <small>${ctx.esc(app.website ?? '')}</small>
         </span>
       </div>
-      <p class="amount">${money(inv.amount)}</p>${nairaEq(inv.amount, asset ?? '')}
+      <p class="amount">${money(inv.amount)}</p>
       ${inv.description ? `<p class="muted">${ctx.esc(inv.description)}</p>` : ''}
       <dl class="summary">
         <dt>Network fee</dt><dd>${ctx.state.status ? money(feeFor(ctx.state.status, asset)) : '…'}</dd>

@@ -207,7 +207,7 @@ async function openWallet(seed, address) {
     .then((g) => {
       state.gateway = g
       renderBalance()
-      if (state.view === 'home' && state.tab === 'send' && !$('#to')?.value) renderSend()
+      if (state.view === 'home' && state.tab === 'send' && !$('#panel-card')?.hidden && !$('#to')?.value) renderSend()
     })
     .catch(() => {})
   api.lookup(address).then((r) => ((state.username = r.username), renderHeader())).catch(() => {})
@@ -224,7 +224,7 @@ async function openWallet(seed, address) {
       else if (req.escrow) showView('escrow', () => renderEscrow(req.escrow))
       else if (req.escrow_request) showView('escrow', () => renderFundRequest(req.escrow_request))
       else if (req.ajo_invite) showView('pools', () => renderInvite(req.ajo_invite))
-      else renderSend(req)
+      else (showPanel('Send money'), renderSend(req))
     } catch {}
   }
 }
@@ -243,20 +243,53 @@ function showView(view, render) {
   ;(render ?? { pools: renderPools, escrow: renderEscrows, developers: renderDevelopers }[view])()
 }
 
+const qaIcon = {
+  send: '<svg viewBox="0 0 24 24"><path d="M12 19V5M6 11l6-6 6 6"/></svg>',
+  receive: '<svg viewBox="0 0 24 24"><path d="M12 5v14M6 13l6 6 6-6"/></svg>',
+  escrow: '<svg viewBox="0 0 24 24"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.2 7.5 9.5 4.3-1.3 7.5-4.9 7.5-9.5V6z"/><path d="m9 12 2 2 4-4"/></svg>',
+  ajo: '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/><path d="M12 8v4l3 2"/></svg>',
+}
+
+function greeting() {
+  const h = new Date().getHours()
+  const t = $('#greet-time'), n = $('#greet-name')
+  if (!t) return
+  t.textContent = h < 12 ? 'Good morning' : h < 17 ? 'Good afternoon' : 'Good evening'
+  n.textContent = state.username ? `@${state.username}` : 'Welcome to ORPay'
+}
+
+function showPanel(title) {
+  const card = $('#panel-card')
+  if (!card) return
+  card.hidden = false
+  $('#panel-title').textContent = title
+  card.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+function openPanel(tab) {
+  state.tab = tab
+  showPanel(tab === 'send' ? 'Send money' : 'Receive money')
+  renderPanel()
+}
+
 function homeHTML() {
   return `
+      <div class="greet"><small id="greet-time"></small><strong id="greet-name"></strong></div>
       <section class="card balance" id="balance"></section>
+      <nav class="quick-actions" aria-label="Quick actions">
+        <button data-qa="send"><i>${qaIcon.send}</i>Send</button>
+        <button data-qa="receive"><i>${qaIcon.receive}</i>Receive</button>
+        <button data-qa="escrow"><i>${qaIcon.escrow}</i>Escrow</button>
+        <button data-qa="ajo"><i>${qaIcon.ajo}</i>Ajo</button>
+      </nav>
       <section id="reminders"></section>
-      <section class="card">
-        <div class="tabs" role="tablist">
-          <button role="tab" data-tab="send">Send</button>
-          <button role="tab" data-tab="receive">Receive</button>
-        </div>
+      <section class="card" id="panel-card" hidden>
+        <div class="section-head"><h2 id="panel-title">Send</h2><button class="link" id="panel-close" aria-label="Close">Close</button></div>
         <div id="panel"></div>
       </section>
       <section class="card">
-        <h2>Activity</h2>
-        <ul class="activity" id="activity"><li class="empty"><span class="empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h13l-3-3M19 15H6l3 3"/></svg></span><strong>No payments yet</strong><small>Top up or ask a friend to send you ORP.</small></li></ul>
+        <div class="section-head"><h2>Recent activity</h2><button class="link" id="see-all" hidden>See all</button></div>
+        <ul class="activity" id="activity"><li class="empty"><span class="empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h13l-3-3M19 15H6l3 3"/></svg></span><strong>No payments yet</strong><small>Add money or ask a friend to pay you.</small></li></ul>
       </section>`
 }
 
@@ -310,9 +343,16 @@ function renderReminders() {
 }
 
 function bindHome() {
-  app.querySelectorAll('[data-tab]').forEach((b) => (b.onclick = () => ((state.tab = b.dataset.tab), renderPanel())))
+  app.querySelectorAll('[data-qa]').forEach((b) => (b.onclick = () => {
+    const a = b.dataset.qa
+    if (a === 'send' || a === 'receive') openPanel(a)
+    else if (a === 'escrow') showView('escrow', renderEscrows)
+    else showView('pools', renderPools)
+  }))
+  $('#panel-close').onclick = () => ($('#panel-card').hidden = true)
+  $('#see-all').onclick = () => ((state.allActivity = true), renderActivity())
+  greeting()
   renderBalance()
-  renderPanel()
   renderActivity()
   renderReminders()
   checkReminders(true)
@@ -403,10 +443,11 @@ function renderHeader() {
       <button class="chip" id="me">${who ? `@${esc(who)}` : 'Claim @name'}</button>`
     $('#me').onclick = () => {
       if (state.view !== 'home') showView('home')
-      who ? ((state.tab = 'receive'), renderPanel()) : renderClaim()
+      who ? openPanel('receive') : renderClaim()
     }
   }
   $('#net').innerHTML = net
+  greeting()
 }
 
 // The currencies this wallet can hold. Naira comes first whenever the
@@ -433,7 +474,7 @@ function renderBalance() {
   if (el.dataset.built !== key) {
     el.dataset.built = key
     el.innerHTML = `
-      <p class="label">${primary ? 'Naira balance' : 'Balance'}</p>
+      <p class="label">Total balance</p>
       <p class="amount" id="bal"></p>
       ${primary ? '<p class="sub-balance" title="ORP pays network fees. It has no cash value.">Network credits: <span id="bal-orp"></span> ORP</p>' : ''}
       <div class="balance-actions">
@@ -663,6 +704,7 @@ function renderReceive() {
 }
 
 function renderClaim() {
+  showPanel('Claim a username')
   state.tab = 'receive'
   app.querySelectorAll('[data-tab]').forEach((b) => b.setAttribute('aria-selected', b.dataset.tab === 'receive'))
   $('#panel').innerHTML = `
@@ -693,8 +735,10 @@ function renderClaim() {
 function renderActivity() {
   const ul = $('#activity')
   if (!ul) return
-  if (!state.history.length) return (ul.innerHTML = '<li class="empty"><span class="empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h13l-3-3M19 15H6l3 3"/></svg></span><strong>No payments yet</strong><small>Top up or ask a friend to send you ORP.</small></li>')
-  ul.innerHTML = state.history
+  if (!state.history.length) return (ul.innerHTML = '<li class="empty"><span class="empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h13l-3-3M19 15H6l3 3"/></svg></span><strong>No payments yet</strong><small>Add money or ask a friend to pay you.</small></li>')
+  const all = state.allActivity || state.history.length <= 6
+  $('#see-all').hidden = all
+  ul.innerHTML = (all ? state.history : state.history.slice(0, 6))
     .map((e) => {
       if (e.tx.pool) return poolActivity(e)
       if (e.tx.escrow) return escrowActivity(e)

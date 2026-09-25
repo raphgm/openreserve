@@ -209,20 +209,20 @@ export async function renderEscrow(id, preloaded) {
   // The four stages of the design, derived from on-chain state.
   const stage = (state, title, sub, detail) => `
     <li class="step ${state}">
-      <span class="step-dot" aria-hidden="true">${state === 'done' ? '✓' : state === 'active' ? '●' : '🔒'}</span>
+      <span class="step-dot" aria-hidden="true">${state === 'done' ? '✓' : state === 'active' ? '●' : ''}</span>
       <span class="who"><strong>${title}</strong><small>${sub}</small>${detail ? `<small class="muted">${detail}</small>` : ''}</span>
       <span class="step-tag">${{ done: 'Verified ✓', active: 'Action required', locked: 'Locked' }[state]}</span>
     </li>`
   const shipped = !!e.dispatched_at
   const steps = [
-    stage('done', 'Deposit locked', `${label(e.buyer)} secured ${money(total(e))} in escrow`, when(e.created_at)),
-    stage(shipped ? 'done' : open ? 'active' : 'locked', shipped ? 'Dispatched / delivered' : 'Awaiting dispatch',
+    stage('done', 'Escrow funded', `${label(e.buyer)} secured ${money(total(e))} in escrow`, when(e.created_at)),
+    stage(shipped ? 'done' : open ? 'active' : 'locked', shipped ? 'Shipped' : 'Awaiting shipment',
       shipped ? `${label(e.seller)} marked it dispatched` : `${label(e.seller)} ships or delivers by ${when(e.ship_by)}`,
       e.tracking ? `Tracking: ${ctx.esc(e.tracking)}` : ''),
     stage(e.released === e.milestones.length || e.status === 'completed' ? 'done' : open && e.status !== 'disputed' ? 'active' : 'locked',
-      'Buyer approval', `${e.released} of ${e.milestones.length} milestones released`,
+      'Inspected and approved', `${e.released} of ${e.milestones.length} milestones released`,
       shipped && e.status === 'dispatched' ? `Auto-release to seller after ${when(reviewEnds)} if no dispute` : ''),
-    stage(done ? 'done' : 'locked', { completed: 'Completed', refunded: 'Refunded', resolved: 'Resolved by arbiter' }[e.status] ?? 'Completed',
+    stage(done ? 'done' : 'locked', { completed: 'Funds released', refunded: 'Refunded', resolved: 'Resolved by arbiter' }[e.status] ?? 'Funds released',
       done ? `${money(e.paid_seller)} to seller · ${money(e.paid_buyer)} back to buyer` : 'Funds released directly to the seller'),
   ].join('')
 
@@ -277,8 +277,8 @@ export async function renderEscrow(id, preloaded) {
         <div><span>Arbiter</span><strong>${label(e.arbiter)}</strong></div>
       </div>
     </section>
+    <section class="card"><h2>Status</h2><ol class="steps">${steps}</ol></section>
     <section class="card"><div class="stack" id="actions">${acts.join('')}</div><p class="error" id="err"></p></section>
-    <section class="card"><h2>Progress</h2><ol class="steps">${steps}</ol></section>
     <section class="card"><h2>Milestones</h2><ul class="milestones">${ms}</ul></section>
     <section class="card" id="terms-card" hidden></section>
     ${role !== 'viewer' ? `<section class="card chat-card">

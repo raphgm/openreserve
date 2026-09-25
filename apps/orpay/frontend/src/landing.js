@@ -31,7 +31,7 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
 
     <section class="l-hero">
       <div>
-        <span class="l-pill"><span class="dot on"></span>Ajo and escrow, on an open ledger</span>
+        <span class="l-pill"><span class="dot on"></span><span id="l-live">Live on an open ledger</span></span>
         <h1>Save together.<br>Buy safely.<br><span>Everyone can see it's fair.</span></h1>
         <p class="l-lead">Ajo and escrow on an open ledger. Nobody can touch the money. Not even us.</p>
         <div class="l-cta">
@@ -60,8 +60,8 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
       </div>
     </section>
 
-    <section class="l-trust">
-      <span>Built for</span><b>Gabis Payments</b><b>Paynautik</b><b>SSLabs</b><b>and approved partners</b>
+    <section class="l-trust" aria-label="Built for">
+      <div class="l-marquee"><div>${'<b>Gabis Payments</b><i>✦</i><b>Paynautik</b><i>✦</i><b>SSLabs</b><i>✦</i><b>Ajo groups</b><i>✦</i><b>Online sellers</b><i>✦</i>'.repeat(4)}</div></div>
     </section>
 
     <section class="l-sec" id="features">
@@ -129,6 +129,21 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
     el.style.setProperty('--mx', `${e.clientX - r.left}px`)
     el.style.setProperty('--my', `${e.clientY - r.top}px`)
   }))
+  // Phone mock tilts toward the pointer.
+  const mock = app.querySelector('.l-mock'), phone = app.querySelector('.l-phone')
+  if (mock && matchMedia('(hover: hover)').matches) {
+    mock.onpointermove = (e) => {
+      const r = mock.getBoundingClientRect()
+      const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5
+      phone.style.transform = `perspective(900px) rotateY(${x * 10}deg) rotateX(${-y * 10}deg)`
+    }
+    mock.onpointerleave = () => (phone.style.transform = '')
+  }
+  // Real chain height in the badge.
+  fetch('/v1/status').then((r) => r.json()).then((st) => {
+    const el = document.getElementById('l-live')
+    if (el && st.height > 0) el.textContent = `Live · block ${st.height.toLocaleString()}`
+  }).catch(() => {})
   app.querySelectorAll('[data-start]').forEach((b) => (b.onclick = onStart))
   app.querySelectorAll('[data-signin]').forEach((b) => (b.onclick = onSignIn))
 }

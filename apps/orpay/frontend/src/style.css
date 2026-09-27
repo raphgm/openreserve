@@ -628,3 +628,5 @@ li.empty small { color: var(--muted); }
 .steps .step-tag { display: none; }
 .logo-or + .logo-pay { margin-left: -8px; }
 .logo.cobrand .logo-or { display: none; }
+button.pulse { animation: btn-pulse 1.6s ease-in-out 3; }
+@keyframes btn-pulse { 50% { box-shadow: 0 0 0 6px rgb(79 70 229 / .25); } }

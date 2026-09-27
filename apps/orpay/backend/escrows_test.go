@@ -163,3 +163,36 @@ func TestEscrowRequestExpires(t *testing.T) {
 		t.Errorf("status %s, want expired", s)
 	}
 }
+
+func TestEscrowRequestCancel(t *testing.T) {
+	e := newEnv(t)
+	owner, dev := newWallet(t), newWallet(t)
+	var app App
+	e.call("POST", "/api/apps", map[string]string{"name": "Gabis", "website": "https://gabis.example", "contact_email": "a@b.c"}, &owner, "", &app)
+	e.call("POST", "/api/apps/"+app.ID+"/review", map[string]string{"decision": "approve"}, &e.admin, "", nil)
+	var key, other struct {
+		APIKey string `json:"api_key"`
+	}
+	e.call("POST", "/api/apps/"+app.ID+"/keys", nil, &owner, "", &key)
+	var req map[string]any
+	e.call("POST", "/api/v1/escrows", map[string]any{"seller": string(dev.addr), "currency": "ORP",
+		"milestones": []map[string]string{{"amount": "5"}}}, nil, key.APIKey, &req)
+	id := req["id"].(string)
+
+	// Another app cannot cancel it.
+	owner2 := newWallet(t)
+	var app2 App
+	e.call("POST", "/api/apps", map[string]string{"name": "Other", "website": "https://other.example", "contact_email": "a@b.c"}, &owner2, "", &app2)
+	e.call("POST", "/api/apps/"+app2.ID+"/review", map[string]string{"decision": "approve"}, &e.admin, "", nil)
+	e.call("POST", "/api/apps/"+app2.ID+"/keys", nil, &owner2, "", &other)
+	if code := e.call("POST", "/api/v1/escrows/"+id+"/cancel", nil, nil, other.APIKey, nil); code != 404 {
+		t.Errorf("other app cancelled: %d", code)
+	}
+	if code := e.call("POST", "/api/v1/escrows/"+id+"/cancel", nil, nil, key.APIKey, &req); code != 200 || req["status"] != EscrowCancel {
+		t.Fatalf("cancel: %d %v", code, req["status"])
+	}
+	// Already cancelled: nothing more to cancel.
+	if code := e.call("POST", "/api/v1/escrows/"+id+"/cancel", nil, nil, key.APIKey, nil); code != 409 {
+		t.Errorf("second cancel: %d", code)
+	}
+}

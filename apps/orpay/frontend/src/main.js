@@ -41,7 +41,7 @@ const PENDING = 'orpay.pending'
     : q.get('pool')
       ? { pool: q.get('pool') }
       : q.get('escrow')
-      ? { escrow: q.get('escrow') }
+      ? { escrow: q.get('escrow'), action: q.get('action') }
       : q.get('escrow_request')
       ? { escrow_request: q.get('escrow_request') }
       : q.get('ajo_invite')
@@ -221,7 +221,7 @@ async function openWallet(seed, address) {
       if (req.deposit) showView('money', () => confirmDeposit(req.deposit))
       else if (req.invoice) showView('checkout', () => renderCheckout(req.invoice, req.card))
       else if (req.pool) showView('pools', () => renderPool(req.pool))
-      else if (req.escrow) showView('escrow', () => renderEscrow(req.escrow))
+      else if (req.escrow) showView('escrow', () => renderEscrow(req.escrow, undefined, req.action))
       else if (req.escrow_request) showView('escrow', () => renderFundRequest(req.escrow_request))
       else if (req.ajo_invite) showView('pools', () => renderInvite(req.ajo_invite))
       else (showPanel('Send money'), renderSend(req))

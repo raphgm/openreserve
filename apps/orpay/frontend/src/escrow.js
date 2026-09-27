@@ -180,7 +180,7 @@ function renderCreate() {
 
 let watch = { timer: null }
 
-export async function renderEscrow(id, preloaded) {
+export async function renderEscrow(id, preloaded, focus) {
   const root = ctx.root()
   if (!preloaded) root.innerHTML = '<section class="card"><p class="muted">Loading escrow…</p></section>'
   let data = preloaded
@@ -335,6 +335,13 @@ export async function renderEscrow(id, preloaded) {
         ctx.$('#split-hint').textContent = 'Enter an amount.'
       }
     }
+  // A partner link (?escrow=ID&action=release) points at one step: bring
+  // that button into view. The person still reviews and confirms it.
+  const target = focus && root.querySelector(`[data-op="${CSS.escape(focus)}"]`)
+  if (target) {
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    target.classList.add('pulse')
+  }
   root.querySelectorAll('[data-op]').forEach((b) => {
     b.onclick = async () => {
       const op = b.dataset.op
@@ -393,7 +400,7 @@ export async function renderFundRequest(id) {
   const money = (x) => formatMoney(x, r.asset ?? '')
   const app = r.app ?? { name: 'A partner app', status: 'unknown' }
   if (app.status === 'approved') ctx.cobrand(app)
-  const expired = r.status === 'expired' || new Date(r.expires_at) < new Date()
+  const expired = r.status === 'expired' || r.status === 'cancelled' || new Date(r.expires_at) < new Date()
   root.innerHTML = `
     <section class="card checkout">
       <p class="label">Fund escrow</p>
@@ -414,7 +421,7 @@ export async function renderFundRequest(id) {
       ${r.policy ? `<div class="terms-box"><p class="label">Seller's terms</p><p class="terms-text">${ctx.esc(r.policy)}</p></div>
       <label class="check"><input type="checkbox" id="accept"> I have read and accept these terms. I understand returns are not accepted.</label>` : ''}
       <p class="error" id="err"></p>
-      ${expired ? '<p class="banner">This request has expired. Ask for a new one.</p>' : `<button class="primary" id="fund">Lock ${money(r.total)} in escrow</button>`}
+      ${expired ? `<p class="banner">This request ${r.status === 'cancelled' ? 'was cancelled by the seller' : 'has expired'}. Ask for a new one.</p>` : `<button class="primary" id="fund">Lock ${money(r.total)} in escrow</button>`}
     </section>`
   const btn = ctx.$('#fund')
   if (!btn) return

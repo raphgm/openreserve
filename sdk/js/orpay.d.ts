@@ -1,3 +1,5 @@
+export type EscrowAction = 'release' | 'dispute' | 'dispatch' | 'refund' | 'resolve' | 'claim'
+
 export class ORPayError extends Error {
   status?: number
 }
@@ -32,7 +34,7 @@ export interface EscrowRequest {
   total: number
   description: string
   reference?: string
-  status: 'awaiting_funding' | 'linked' | 'expired'
+  status: 'awaiting_funding' | 'linked' | 'expired' | 'cancelled'
   funding_url: string
   escrow_id?: string
   escrow_url?: string
@@ -82,6 +84,10 @@ export class ORPay {
   }): Promise<EscrowRequest>
   getEscrow(id: string): Promise<EscrowRequest>
   listEscrows(): Promise<EscrowRequest[]>
+  /** Withdraw an unfunded escrow request. Funded escrows move only by the parties' signatures. */
+  cancelEscrow(id: string): Promise<EscrowRequest>
+  /** Link for the buyer, seller or arbiter to sign one step of a funded escrow in ORPay. */
+  escrowActionUrl(escrow: Pick<EscrowRequest, 'escrow_url'>, action: EscrowAction): string
 }
 
 export function verifyWebhook(

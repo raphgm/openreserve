@@ -251,6 +251,7 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/v1/escrows", strict(120, 40, s.apiKeyAuth(s.createEscrowRequest)))
 	mux.HandleFunc("GET /api/v1/escrows", s.apiKeyAuth(s.listAppEscrows))
 	mux.HandleFunc("GET /api/v1/escrows/{id}", s.apiKeyAuth(s.getAppEscrow))
+	mux.Handle("POST /api/v1/escrows/{id}/cancel", strict(60, 20, s.apiKeyAuth(s.cancelAppEscrow)))
 	mux.HandleFunc("GET /api/escrow-requests/{id}", s.getEscrowRequest)
 
 	// Escrow terms (no returns: buyers accept terms before funding), and a

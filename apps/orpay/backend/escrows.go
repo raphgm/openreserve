@@ -24,6 +24,7 @@ const (
 	EscrowAwaiting = "awaiting_funding"
 	EscrowLinked   = "linked" // funded on-chain; see Chain for its live state
 	EscrowNoFund   = "expired"
+	EscrowCancel   = "cancelled" // withdrawn by the app before the buyer funded it
 )
 
 type Milestone struct {
@@ -252,6 +253,37 @@ func (s *server) getAppEscrow(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, s.escrowView(er, true))
 }
+
+// cancelAppEscrow withdraws an escrow request the buyer has not funded yet.
+// Once funded, money moves only by the buyer, seller or arbiter signing
+// on-chain (release, refund, dispute, resolve); an app cannot move it.
+func (s *server) cancelAppEscrow(w http.ResponseWriter, r *http.Request) {
+	app := appFrom(r)
+	var out *EscrowRequest
+	err := s.escrows.Update(func(m map[string]*EscrowRequest) error {
+		er, ok := m[r.PathValue("id")]
+		if !ok || er.AppID != app.ID {
+			return errNotFound
+		}
+		if er.Status != EscrowAwaiting {
+			return fmt.Errorf("only unfunded escrows can be cancelled (status %s); funded escrows are released or refunded by the buyer, seller or arbiter", er.Status)
+		}
+		er.Status = EscrowCancel
+		c := *er
+		out = &c
+		return nil
+	})
+	switch {
+	case errors.Is(err, errNotFound):
+		writeErr(w, http.StatusNotFound, errors.New("escrow not found"))
+	case err != nil:
+		writeErr(w, http.StatusConflict, err)
+	default:
+		writeJSON(w, http.StatusOK, s.escrowView(out, true))
+	}
+}
+
+var errNotFound = errors.New("not found")
 
 func (s *server) listAppEscrows(w http.ResponseWriter, r *http.Request) {
 	app := appFrom(r)

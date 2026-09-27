@@ -33,3 +33,11 @@ test('requires a secret key and string amounts', () => {
   assert.throws(() => c.createCheckout({ amount: 12.5 }))
   assert.throws(() => c.createEscrow({ seller: '@dev', milestones: [{ amount: 40000 }] }))
 })
+
+test('builds escrow action links and refuses unfunded escrows', () => {
+  const orpay = new ORPay({ apiKey: 'orp_sk_test' })
+  const escrow = { escrow_url: 'https://pay.example/?escrow=abc' }
+  assert.equal(orpay.escrowActionUrl(escrow, 'release'), 'https://pay.example/?escrow=abc&action=release')
+  assert.throws(() => orpay.escrowActionUrl({}, 'release'), /not funded/)
+  assert.throws(() => orpay.escrowActionUrl(escrow, 'steal'), /action must be/)
+})

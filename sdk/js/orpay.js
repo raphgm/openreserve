@@ -10,6 +10,8 @@ export class ORPayError extends Error {
   }
 }
 
+const ESCROW_ACTIONS = ['release', 'dispute', 'dispatch', 'refund', 'resolve', 'claim']
+
 export class ORPay {
   /**
    * @param {{ apiKey: string, baseUrl?: string }} opts
@@ -76,6 +78,36 @@ export class ORPay {
 
   listEscrows() {
     return this.#call('GET', '/api/v1/escrows')
+  }
+
+  /**
+   * Withdraw an escrow request the buyer has not funded yet.
+   * Funded escrows cannot be cancelled by your app: see escrowActionUrl.
+   */
+  cancelEscrow(id) {
+    return this.#call('POST', `/api/v1/escrows/${encodeURIComponent(id)}/cancel`)
+  }
+
+  /**
+   * Link that opens a funded escrow in ORPay at one step, for the person who
+   * must sign it. Money in escrow only moves when the buyer, seller or
+   * arbiter signs with their own wallet; your API key can never release or
+   * refund it. Send the right person this link, then wait for the webhook
+   * (escrow.milestone_released, escrow.refunded, escrow.completed, ...).
+   *
+   *   release  buyer approves the next milestone and pays the seller
+   *   dispute  buyer or seller freezes the escrow for the arbiter
+   *   dispatch seller marks the goods shipped or the work delivered
+   *   refund   seller returns the funds (or buyer reclaims after ship-by)
+   *   resolve  arbiter splits a disputed escrow
+   *
+   * @param {{ escrow_url?: string }} escrow  an escrow from getEscrow / a webhook
+   * @param {'release'|'dispute'|'dispatch'|'refund'|'resolve'|'claim'} action
+   */
+  escrowActionUrl(escrow, action) {
+    if (!escrow?.escrow_url) throw new ORPayError('Escrow is not funded yet: send the buyer to funding_url first', 409)
+    if (!ESCROW_ACTIONS.includes(action)) throw new TypeError(`ORPay: action must be one of ${ESCROW_ACTIONS.join(', ')}`)
+    return `${escrow.escrow_url}&action=${action}`
   }
 
   /** List recent checkouts, optionally filtered by status (pending | paid | expired). */

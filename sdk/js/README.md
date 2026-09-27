@@ -79,6 +79,35 @@ open a dispute, which your app's arbiter wallet settles in ORPay. Webhooks:
 `escrow.disputed`, `escrow.completed`, `escrow.refunded`, `escrow.resolved`,
 `escrow.expired`.
 
+### Release, refund and dispute
+
+Your API key can create, read and cancel escrow requests, but it can never
+move escrowed money. That is deliberate: only the buyer, seller or arbiter
+can, each signing with their own wallet. From your app you send the right
+person a link to the step they need to take, then react to the webhook.
+
+```js
+// Before funding: withdraw the request (e.g. the order was cancelled).
+await orpay.cancelEscrow(escrow.id)
+
+// After funding: ask the buyer to approve and pay the seller.
+const e = await orpay.getEscrow(escrow.id)
+const url = orpay.escrowActionUrl(e, 'release')   // show as a button, email, SMS...
+// ...later your webhook receives escrow.milestone_released / escrow.completed
+```
+
+| Action     | Who signs | What happens                                         | Webhook                      |
+|------------|-----------|------------------------------------------------------|------------------------------|
+| `dispatch` | seller    | marks goods shipped / work delivered                 | `escrow.dispatched`          |
+| `release`  | buyer     | pays the next milestone to the seller                | `escrow.milestone_released`, then `escrow.completed` |
+| `refund`   | seller (or buyer after the ship-by date) | returns the remaining funds | `escrow.refunded` |
+| `dispute`  | buyer or seller | freezes the escrow for the arbiter             | `escrow.disputed`            |
+| `resolve`  | arbiter   | splits a disputed escrow                             | `escrow.resolved`            |
+| `claim`    | seller    | collects the rest if the buyer stays silent after review | `escrow.completed`       |
+
+The link opens the escrow in ORPay with that button highlighted; the person
+still reviews and confirms it there.
+
 ## Savings pools
 
 Pools are on-chain and belong to users, not apps. Your app can show a user's

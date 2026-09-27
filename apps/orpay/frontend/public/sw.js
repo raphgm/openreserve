@@ -2,7 +2,7 @@
 // offline. It never caches API traffic (/v1, /api, /pay): balances and
 // payments must always come fresh from the network.
 const CACHE = 'orpay-shell-v1'
-const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/favicon.svg']
+const SHELL = ['/', '/index.html', '/manifest.webmanifest', '/icon-192.png', '/icon-512.png', '/favicon.png']
 
 self.addEventListener('install', (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(SHELL)).then(() => self.skipWaiting()))

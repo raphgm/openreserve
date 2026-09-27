@@ -71,7 +71,7 @@ function toast(msg, kind = 'ok') {
 function renderWelcome() {
   app.innerHTML = `
     <main class="narrow">
-      <div class="brand"><span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span></div>
+      <div class="brand"><span class="logo" aria-label="ORPay"><span class="logo-or">OR</span><span class="logo-pay">Pay</span></span></div>
       <h1>Money that moves like messages.</h1>
       <p class="muted">Send ORP to anyone by @username. Your keys stay on this device.</p>
       <div class="stack">
@@ -152,7 +152,7 @@ function renderUnlock() {
   const addr = vaultAddress()
   app.innerHTML = `
     <main class="narrow">
-      <div class="brand"><span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span></div>
+      <div class="brand"><span class="logo" aria-label="ORPay"><span class="logo-or">OR</span><span class="logo-pay">Pay</span></span></div>
       <h1>Welcome back</h1>
       ${addr ? `<div class="who-chip"><span class="avatar" style="--hue:${parseInt(addr.slice(0, 4), 16) % 360}">${addr.slice(0, 2).toUpperCase()}</span><span><small>Your wallet</small><span class="mono">${short(addr)}</span></span></div>` : ''}
       <form id="f" class="stack">
@@ -437,7 +437,7 @@ function renderHeader() {
   if (h.dataset.who !== who || !h.firstChild) {
     h.dataset.who = who
     h.innerHTML = `
-      <span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span>
+      <span class="logo" aria-label="ORPay"><span class="logo-or">OR</span><span class="logo-pay">Pay</span></span>
       <span class="net" id="net"></span>
       <a class="chip ghost-chip" href="/explorer.html" target="_blank" rel="noopener" title="Explorer: see every block and transaction" aria-label="Explorer"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Explorer</span></a>
       <button class="chip" id="me">${who ? `@${esc(who)}` : 'Claim @name'}</button>`
@@ -868,7 +868,7 @@ function cobrand(partner) {
   const root = document.documentElement // the colour also tints partner marks inside the page
   if (!partner) {
     logo.classList.remove('cobrand')
-    logo.innerHTML = '<span class="logo-pay">Pay</span>'
+    logo.innerHTML = '<span class="logo-or">OR</span><span class="logo-pay">Pay</span>'
     root.style.removeProperty('--partner')
     return
   }
@@ -887,7 +887,7 @@ initEscrow(ctx)
 
 async function renderGuestCheckout(invoice) {
   app.innerHTML = `
-    <header id="header"><span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span><span class="net"></span>
+    <header id="header"><span class="logo" aria-label="ORPay"><span class="logo-or">OR</span><span class="logo-pay">Pay</span></span><span class="net"></span>
       <button class="chip" id="signin">${hasVault() ? 'Unlock wallet' : 'Open ORPay'}</button></header>
     <main class="wallet" id="view"></main>`
   $('#signin').onclick = ctx.requireWallet

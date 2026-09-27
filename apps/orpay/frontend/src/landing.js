@@ -18,7 +18,7 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
   app.innerHTML = `
   <div class="lp">
     <nav class="lp-nav">
-      <a class="logo" href="#top" aria-label="ORPay"><span class="logo-pay">Pay</span></a>
+      <a class="logo" href="#top" aria-label="ORPay"><span class="logo-or">OR</span><span class="logo-pay">Pay</span></a>
       <div class="lp-links">
         <a href="#product">Product</a><a href="#escrow">Escrow</a><a href="#developers">Developers</a><a href="/explorer.html">Explorer</a>
       </div>
@@ -50,7 +50,7 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
             <i class="side a"></i><i class="side b"></i><i class="side c"></i><i class="side d"></i>
             <div class="lp-screen">
               <div class="lp-status"><b>9:41</b><span class="island"></span><span class="lp-sig"><i></i><i></i><i></i><i></i><span class="batt"><span></span></span></span></div>
-              <div class="lp-apphead"><span class="logo"><span class="logo-pay">Pay</span></span><span class="me">RG</span></div>
+              <div class="lp-apphead"><span class="logo"><span class="logo-or">OR</span><span class="logo-pay">Pay</span></span><span class="me">RG</span></div>
               <div class="lp-bal">
                 <small>Available balance</small>
                 <strong>₦248,500</strong>
@@ -144,8 +144,8 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
     </section>
 
     <footer class="lp-wrap lp-foot">
-      <span class="logo" aria-label="ORPay"><span class="logo-pay">Pay</span></span>
-      <span class="lp-proto"><img src="/favicon.svg" alt="">Built on the <b>OpenReserve Protocol</b></span>
+      <span class="logo" aria-label="ORPay"><span class="logo-or">OR</span><span class="logo-pay">Pay</span></span>
+      <span class="lp-proto"><img src="/favicon.png" alt="">Built on the <b>OpenReserve Protocol</b></span>
       <a href="/explorer.html">Explorer →</a>
     </footer>
   </div>`

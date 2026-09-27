@@ -1,4 +1,4 @@
-// @openreserve/orpay: server-side SDK for apps that accept ORP through ORPay.
+// @openreservepolicy/orpay: server-side SDK for apps that accept ORP through ORPay.
 // Zero dependencies. Uses only fetch and Web Crypto, so it runs on Node 18+,
 // Cloudflare Workers / Pages Functions, Deno and Bun without flags.
 

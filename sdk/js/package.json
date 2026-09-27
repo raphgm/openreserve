@@ -1,5 +1,5 @@
 {
-  "name": "@openreserve/orpay",
+  "name": "@openreservepolicy/orpay",
   "version": "0.2.0",
   "description": "ORPay server SDK: checkouts, milestone escrow (cancel, action links) and webhook verification for apps on OpenReserve",
   "type": "module",

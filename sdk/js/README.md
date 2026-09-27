@@ -1,4 +1,4 @@
-# @openreserve/orpay
+# @openreservepolicy/orpay
 
 Accept payments in your app (e.g. Gabis, Paynautik) through ORPay. Customers
 pay from their ORPay wallet; money settles on-chain to your app's settlement
@@ -16,7 +16,7 @@ Only approved apps are co-branded.
 ## 2. Create a checkout (server side)
 
 ```js
-import { ORPay } from '@openreserve/orpay'
+import { ORPay } from '@openreservepolicy/orpay'
 
 const orpay = new ORPay({ apiKey: process.env.ORPAY_API_KEY, baseUrl: 'https://pay.example.com' })
 
@@ -33,7 +33,7 @@ const checkout = await orpay.createCheckout({
 
 ```js
 import express from 'express'
-import { verifyWebhook } from '@openreserve/orpay'
+import { verifyWebhook } from '@openreservepolicy/orpay'
 
 app.post('/orpay/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   let event
@@ -52,7 +52,7 @@ and webhook secret as encrypted environment variables, never in browser code):
 
 ```js
 // functions/orpay/webhook.js
-import { verifyWebhook } from '@openreserve/orpay'
+import { verifyWebhook } from '@openreservepolicy/orpay'
 
 export async function onRequestPost({ request, env }) {
   const raw = await request.text()

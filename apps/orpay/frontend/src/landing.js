@@ -122,7 +122,7 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
           </ul>
           <button class="lp-btn white" data-start>Request API access</button>
         </div>
-        <pre class="lp-code"><code><span class="k">import</span> { ORPay } <span class="k">from</span> <span class="s">'@openreserve/orpay'</span>
+        <pre class="lp-code"><code><span class="k">import</span> { ORPay } <span class="k">from</span> <span class="s">'@openreservepolicy/orpay'</span>
 
 <span class="k">const</span> orpay = <span class="k">new</span> ORPay({ apiKey: process.env.ORPAY_KEY })
 

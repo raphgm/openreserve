@@ -1,13 +1,42 @@
 {
   "name": "@openreserve/orpay",
-  "version": "0.1.0",
-  "description": "Accept ORP payments in your app: ORPay checkout sessions and webhook verification",
+  "version": "0.2.0",
+  "description": "ORPay server SDK: checkouts, milestone escrow (cancel, action links) and webhook verification for apps on OpenReserve",
   "type": "module",
   "main": "orpay.js",
   "types": "orpay.d.ts",
-  "exports": { ".": { "types": "./orpay.d.ts", "default": "./orpay.js" } },
-  "files": ["orpay.js", "orpay.d.ts", "README.md"],
-  "engines": { "node": ">=18" },
-  "scripts": { "test": "node --test" },
-  "license": "Apache-2.0"
+  "exports": {
+    ".": {
+      "types": "./orpay.d.ts",
+      "default": "./orpay.js"
+    }
+  },
+  "files": [
+    "orpay.js",
+    "orpay.d.ts",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "test": "node --test"
+  },
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/raphgm/openreserve.git",
+    "directory": "sdk/js"
+  },
+  "keywords": [
+    "payments",
+    "escrow",
+    "ajo",
+    "naira",
+    "openreserve",
+    "orpay"
+  ],
+  "publishConfig": {
+    "access": "public"
+  }
 }

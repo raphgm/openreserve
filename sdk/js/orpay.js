@@ -1,6 +1,6 @@
 // @openreserve/orpay: server-side SDK for apps that accept ORP through ORPay.
-// Zero dependencies; runs on Node 18+ (uses global fetch and node:crypto).
-import { createHmac, timingSafeEqual } from 'node:crypto'
+// Zero dependencies. Uses only fetch and Web Crypto, so it runs on Node 18+,
+// Cloudflare Workers / Pages Functions, Deno and Bun without flags.
 
 export class ORPayError extends Error {
   constructor(message, status) {
@@ -121,22 +121,23 @@ export class ORPay {
  * signature is invalid or older than toleranceSeconds (replay protection).
  * Pass the raw request body exactly as received, before any JSON parsing.
  *
- * @param {string|Buffer} rawBody
+ * @param {string|ArrayBuffer|Uint8Array} rawBody  (a Node Buffer works too)
  * @param {string} signatureHeader  the ORPay-Signature header
  * @param {string} secret           your app's webhook secret (whsec_...)
  */
-export function verifyWebhook(rawBody, signatureHeader, secret, { toleranceSeconds = 300, now = Date.now() } = {}) {
+export async function verifyWebhook(rawBody, signatureHeader, secret, { toleranceSeconds = 300, now = Date.now() } = {}) {
   const parts = Object.fromEntries(
     String(signatureHeader ?? '').split(',').map((kv) => kv.trim().split('=', 2)),
   )
   const ts = Number(parts.t)
-  if (!Number.isInteger(ts) || !parts.v1) throw new ORPayError('Malformed ORPay-Signature header', 400)
+  if (!Number.isInteger(ts) || !/^[0-9a-f]{64}$/.test(parts.v1 ?? '')) throw new ORPayError('Malformed ORPay-Signature header', 400)
   if (Math.abs(now / 1000 - ts) > toleranceSeconds) throw new ORPayError('Webhook timestamp outside tolerance', 400)
-  const body = Buffer.isBuffer(rawBody) ? rawBody : Buffer.from(rawBody)
-  const expected = createHmac('sha256', secret).update(`${ts}.`).update(body).digest()
-  const given = Buffer.from(parts.v1, 'hex')
-  if (given.length !== expected.length || !timingSafeEqual(given, expected)) {
-    throw new ORPayError('Invalid webhook signature', 400)
-  }
-  return JSON.parse(body.toString('utf8'))
+  const enc = new TextEncoder()
+  const body = typeof rawBody === 'string' ? enc.encode(rawBody) : new Uint8Array(rawBody)
+  const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['verify'])
+  const signed = new Uint8Array([...enc.encode(`${ts}.`), ...body])
+  const given = new Uint8Array(parts.v1.match(/../g).map((h) => parseInt(h, 16)))
+  // crypto.subtle.verify compares in constant time.
+  if (!(await crypto.subtle.verify('HMAC', key, given, signed))) throw new ORPayError('Invalid webhook signature', 400)
+  return JSON.parse(new TextDecoder().decode(body))
 }

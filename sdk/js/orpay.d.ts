@@ -91,8 +91,8 @@ export class ORPay {
 }
 
 export function verifyWebhook(
-  rawBody: string | Buffer,
+  rawBody: string | ArrayBuffer | Uint8Array,
   signatureHeader: string,
   secret: string,
   opts?: { toleranceSeconds?: number; now?: number },
-): WebhookEvent
+): Promise<WebhookEvent>

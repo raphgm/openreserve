@@ -35,16 +35,36 @@ const checkout = await orpay.createCheckout({
 import express from 'express'
 import { verifyWebhook } from '@openreserve/orpay'
 
-app.post('/orpay/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+app.post('/orpay/webhook', express.raw({ type: 'application/json' }), async (req, res) => {
   let event
   try {
-    event = verifyWebhook(req.body, req.get('ORPay-Signature'), process.env.ORPAY_WEBHOOK_SECRET)
+    event = await verifyWebhook(req.body, req.get('ORPay-Signature'), process.env.ORPAY_WEBHOOK_SECRET)
   } catch {
     return res.sendStatus(400)
   }
   if (event.type === 'invoice.paid') markOrderPaid(event.data.reference, event.data.paid_tx)
   res.sendStatus(200)
 })
+```
+
+On **Cloudflare Pages Functions / Workers** (no flags needed; keep the API key
+and webhook secret as encrypted environment variables, never in browser code):
+
+```js
+// functions/orpay/webhook.js
+import { verifyWebhook } from '@openreserve/orpay'
+
+export async function onRequestPost({ request, env }) {
+  const raw = await request.text()
+  let event
+  try {
+    event = await verifyWebhook(raw, request.headers.get('ORPay-Signature'), env.ORPAY_WEBHOOK_SECRET)
+  } catch {
+    return new Response('bad signature', { status: 400 })
+  }
+  // ...update the order from event.type / event.data
+  return new Response('ok')
+}
 ```
 
 Events: `invoice.paid`, `invoice.expired`. Deliveries are retried with backoff

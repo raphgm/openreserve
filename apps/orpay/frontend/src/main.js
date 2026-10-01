@@ -49,6 +49,11 @@ const state = {
 const PENDING = 'orpay.pending'
 {
   const q = new URLSearchParams(location.search)
+  if (q.get('ref')) {
+    try {
+      localStorage.setItem('orpay.ref', q.get('ref'))
+    } catch {}
+  }
   const req = q.get('deposit')
     ? { deposit: q.get('deposit') }
     : q.get('invoice')
@@ -146,6 +151,7 @@ function renderProfile() {
   $('#panel').innerHTML = `<div id="my-trust"></div><div class="menu">
     ${state.username ? '' : item('m-claim', '@', 'Claim a username', 'So people can pay you by name')}
     ${item('m-receive', '↓', 'My address & QR', 'Share to get paid')}
+    ${state.username ? item('m-invite', '🎁', 'Invite friends', 'Share your link and see who joined') : ''}
     ${item('m-six', '6', 'Six-word sign-in', 'Open this wallet on another device')}
     ${item('m-words', '24', 'Recovery words', 'Your offline backup')}
     ${item('m-bio', '☝︎', 'Face ID / fingerprint', bioEnabled() ? 'On: unlock without your password' : 'Unlock without typing your password')}
@@ -158,6 +164,7 @@ function renderProfile() {
   showTrustCard($('#my-trust'), state.address, { title: 'Your trust profile' })
   on('#m-claim', renderClaim)
   on('#m-receive', () => openPanel('receive'))
+  on('#m-invite', renderInvites)
   on('#m-six', renderSignInSetup)
   on('#m-words', () => {
     if (!confirm('Show your 24 recovery words? Make sure nobody can see your screen.')) return
@@ -198,6 +205,27 @@ function renderProfile() {
     } catch {}
     location.href = '/'
   })
+}
+
+// Invite friends: personal link, share buttons and who joined.
+async function renderInvites() {
+  showPanel('Invite friends')
+  const link = `${location.origin}/?ref=${encodeURIComponent(state.username)}`
+  const text = `Join me on ORPay: save in ajo and buy safely with escrow. ${link}`
+  $('#panel').innerHTML = `
+    <p class="muted small-text">Share your link. Everyone who joins and makes their first payment counts as your referral.</p>
+    <div class="invite-link"><span class="mono">${esc(link)}</span><button class="ghost small" id="inv-copy">Copy</button></div>
+    <div class="row"><a class="button primary" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Share on WhatsApp</a>
+    ${navigator.share ? '<button class="ghost" id="inv-share">More…</button>' : ''}</div>
+    <div class="tiles" id="inv-stats"><div class="tile"><span>Joined</span><strong>…</strong></div><div class="tile"><span>Active</span><strong>…</strong></div></div>
+    <ul class="activity" id="inv-list"></ul>`
+  $('#inv-copy').onclick = () => navigator.clipboard.writeText(link).then(() => toast('Link copied'))
+  if ($('#inv-share')) $('#inv-share').onclick = () => navigator.share({ title: 'ORPay', text, url: link }).catch(() => {})
+  try {
+    const r = await api.referrals(state.seed)
+    $('#inv-stats').innerHTML = `<div class="tile"><span>Joined</span><strong>${r.invited}</strong></div><div class="tile"><span>Active</span><strong>${r.active}</strong><small>made a payment</small></div>`
+    $('#inv-list').innerHTML = r.people.map((p) => `<li><span class="who"><strong>${p.username ? '@' + esc(p.username) : short(p.address)}</strong></span><span class="chip-s ${p.active ? 'ok' : ''}">${p.active ? 'Active' : 'Joined'}</span></li>`).join('')
+  } catch {}
 }
 
 // Turn on six-word sign-in from Wallet settings.
@@ -986,6 +1014,10 @@ function renderClaim() {
     try {
       const sig = await signMessage(registerMessage(username, state.address), state.seed)
       await api.register({ username, address: state.address, sig })
+      try {
+        const ref = localStorage.getItem('orpay.ref')
+        if (ref) api.recordReferral(state.seed, ref).catch(() => {}).finally(() => localStorage.removeItem('orpay.ref'))
+      } catch {}
       state.username = username
       toast(`You're @${username}`)
       renderHeader()

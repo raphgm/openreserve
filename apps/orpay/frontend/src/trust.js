@@ -23,6 +23,7 @@ const BADGE = {
   phone_verified: '📱 Phone verified',
   verified_business: '🏢 Verified business',
   ajo_perfect: '✓ Never missed an ajo payment',
+  highly_rated: '★ Highly rated by buyers',
   top_seller: '★ Top seller',
 }
 
@@ -32,7 +33,7 @@ const esc = (s) => String(s).replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&
 export function trustChip(t) {
   if (!t) return ''
   const lv = LEVEL[t.level] ?? LEVEL.new
-  return `<span class="trust-chip ${lv.cls}" title="Trust score from on-chain history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.2 7.5 9.5 4.3-1.3 7.5-4.9 7.5-9.5V6z"/></svg>${t.level === 'new' ? 'New' : `${t.score} · ${lv.label}`}</span>`
+  return `<span class="trust-chip ${lv.cls}" title="Trust score from on-chain history"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3 4.5 6v5.5c0 4.6 3.2 8.2 7.5 9.5 4.3-1.3 7.5-4.9 7.5-9.5V6z"/></svg>${t.level === 'new' ? 'New' : `${t.score} · ${lv.label}`}${t.rating?.count ? ` · ★ ${t.rating.average.toFixed(1)}` : ''}</span>`
 }
 
 // Full card: score ring, level, facts and badges.
@@ -56,6 +57,8 @@ export function trustCard(t, { title = 'Trust profile' } = {}) {
         <span class="trust-ring" data-deg="${deg}"><b>${t.level === 'new' ? '–' : t.score}</b></span>
         <span><small>${esc(title)}</small><strong>${lv.label}</strong>${t.username ? `<em>@${esc(t.username)}</em>` : ''}</span>
       </div>
+      ${t.rating?.count ? `<p class="trust-rating"><b>★ ${t.rating.average.toFixed(1)}</b> from ${t.rating.count} verified buyer${t.rating.count === 1 ? '' : 's'}</p>
+        ${t.rating.recent.filter((r) => r.text).slice(0, 3).map((r) => `<blockquote class="review">${'★'.repeat(r.stars)} “${esc(r.text)}”</blockquote>`).join('')}` : ''}
       ${t.badges?.length ? `<div class="trust-badges">${t.badges.map((b) => `<span>${BADGE[b] ?? esc(b)}</span>`).join('')}</div>` : ''}
       <ul class="trust-facts">${facts.map((f) => `<li>${f}</li>`).join('')}</ul>
       <p class="trust-note">Built only from payments recorded on OpenReserve. It can't be bought or edited.</p>

@@ -105,6 +105,15 @@ const MODES = [
   { id: 'bidding', title: 'Bidding', sub: 'Need it sooner? Bid a discount' },
   { id: 'goal', title: 'Savings goal', sub: 'Save toward a target together' },
 ]
+// Ready-made circles people already run, filled in with one tap.
+const TEMPLATES = [
+  { name: 'Market women weekly', sub: '₦5,000 a week · 10 people', mode: '', amount: '5,000', cadence: 604800, slots: 10, deposit: true, insurance: 200 },
+  { name: 'Office monthly', sub: '₦50,000 a month · 6 people', mode: '', amount: '50,000', cadence: 2592000, slots: 6, deposit: true, insurance: 100 },
+  { name: 'Lucky draw weekly', sub: 'Order drawn fairly · ₦10,000', mode: 'lottery', amount: '10,000', cadence: 604800, slots: 8, deposit: true, insurance: 200 },
+  { name: 'Business bidding circle', sub: 'Need it sooner? Bid · ₦100,000', mode: 'bidding', amount: '100,000', cadence: 2592000, slots: 6, deposit: true, insurance: 200 },
+  { name: 'Family land fund', sub: 'Save ₦2,000,000 together', mode: 'goal', amount: '20,000', cadence: 31536000, slots: 5, target: '2,000,000' },
+]
+
 export const modeName = (m) => MODES.find((x) => x.id === (m ?? ''))?.title ?? 'Rotation'
 
 function renderCreate() {
@@ -115,6 +124,9 @@ function renderCreate() {
       <h2>New savings pool</h2>
       <form id="f" class="stack" autocomplete="off">
         <label>Pool name<input id="name" maxlength="64" placeholder="Family ajo" required></label>
+        <div class="templates" aria-label="Start from a template">
+          ${TEMPLATES.map((t, i) => `<button type="button" class="tpl" data-tpl="${i}"><b>${t.name}</b><small>${t.sub}</small></button>`).join('')}
+        </div>
         <div class="mode-pick" role="radiogroup" aria-label="Circle type">
           ${MODES.map((m) => `<button type="button" role="radio" data-mode="${m.id}"><b>${m.title}</b><small>${m.sub}</small></button>`).join('')}
         </div>
@@ -168,6 +180,18 @@ function renderCreate() {
   }
   root.querySelectorAll('[data-mode]').forEach((b) => (b.onclick = () => setMode(b.dataset.mode)))
   setMode('')
+  root.querySelectorAll('[data-tpl]').forEach((b) => (b.onclick = () => {
+    const t = TEMPLATES[b.dataset.tpl]
+    root.querySelectorAll('[data-tpl]').forEach((x) => x.setAttribute('aria-pressed', x === b))
+    setMode(t.mode)
+    ctx.$('#name').value = t.name
+    ctx.$('#amount').value = t.amount
+    ctx.$('#cadence').value = String(t.cadence)
+    if (t.target) ctx.$('#target').value = t.target
+    if (ctx.$('#insurance')) ctx.$('#insurance').value = String(t.insurance ?? 0)
+    ctx.$('#deposit').checked = !!t.deposit
+    ctx.$('#slots').value = t.slots
+  }))
   ctx.$('#by-link').onchange = (e) => {
     ctx.$('#slots-row').hidden = !e.target.checked
     ctx.$('#members-row').hidden = e.target.checked

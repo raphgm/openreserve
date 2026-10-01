@@ -99,6 +99,8 @@ type server struct {
 	trust        trustCache
 	arbiters     *jsonstore.Store[map[types.Address]*Arbiter]
 	trackers     map[string]tracker
+	ratings      *jsonstore.Store[ratingStore]
+	referrals    *jsonstore.Store[map[types.Address]*referral]
 	sms          SMSSender
 	devOTP       bool
 	vapid        vapidKeys
@@ -176,6 +178,14 @@ func newServer(cfg serverConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	ratings, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-ratings.json"), ratingStore{})
+	if err != nil {
+		return nil, err
+	}
+	referrals, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-referrals.json"), map[types.Address]*referral{})
+	if err != nil {
+		return nil, err
+	}
 	vapid, err := loadVAPID(cfg.stateDir)
 	if err != nil {
 		return nil, err
@@ -188,7 +198,7 @@ func newServer(cfg serverConfig) (*server, error) {
 		terms: terms, chats: chats, secret: secret, drafts: drafts, pushes: pushes, vapid: vapid,
 		dir: dir, node: cfg.node, invoices: invoices, apps: apps, escrows: escrows, now: time.Now, stateDir: cfg.stateDir,
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
-		hookClient: webhookClient(cfg.privateHooks), phones: phones, signins: signins, arbiters: arbiters, sms: devSMS{}, devOTP: true,
+		hookClient: webhookClient(cfg.privateHooks), phones: phones, signins: signins, arbiters: arbiters, ratings: ratings, referrals: referrals, sms: devSMS{}, devOTP: true,
 	}
 	s.trackers = trackersFromEnv(&http.Client{Timeout: 15 * time.Second})
 	if k := os.Getenv("TERMII_API_KEY"); k != "" {
@@ -303,6 +313,12 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/arbiters/apply", strict(10, 3, reqauth.Signed(s.applyArbiter)))
 	mux.Handle("POST /api/arbiters/{addr}/review", strict(30, 10, reqauth.Signed(s.reviewArbiter)))
 	mux.Handle("POST /api/escrows/{id}/rate-arbiter", strict(20, 5, reqauth.Signed(s.rateArbiter)))
+
+	// Seller ratings tied to real escrows, and referrals.
+	mux.Handle("POST /api/escrows/{id}/rate-seller", strict(20, 5, reqauth.Signed(s.rateSeller)))
+	mux.HandleFunc("GET /api/escrows/{id}/my-review", reqauth.Signed(s.myReview))
+	mux.Handle("POST /api/referrals", strict(10, 3, reqauth.Signed(s.recordReferral)))
+	mux.HandleFunc("GET /api/referrals", reqauth.Signed(s.myReferrals))
 
 	// Courier delivery updates.
 	mux.Handle("POST /api/couriers/{name}/webhook", strict(120, 40, http.HandlerFunc(s.courierWebhook)))

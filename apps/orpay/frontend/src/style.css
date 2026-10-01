@@ -839,3 +839,14 @@ textarea { font-family: inherit; }
 .radar p { margin: 0; color: var(--text); }
 .radar-inline { margin: 6px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--danger-bg); color: var(--danger); font-size: .78rem; font-weight: 600; }
 .x-trust .x-stats { grid-template-columns: repeat(3, 1fr); } @media (max-width: 720px) { .x-trust .x-stats { grid-template-columns: 1fr 1fr; } }
+.templates { display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.templates::-webkit-scrollbar { display: none; }
+.tpl { flex: none; width: 168px; display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 10px 12px; border-radius: 13px; background: var(--surface); box-shadow: inset 0 0 0 1px var(--border); color: var(--text); }
+.tpl b { font-size: .85rem; } .tpl small { font-size: .72rem; color: var(--muted); font-weight: 400; }
+.tpl[aria-pressed='true'] { box-shadow: inset 0 0 0 1.5px var(--brand-1); background: var(--out-bg); }
+.invite-link { display: flex; align-items: center; gap: 8px; padding: 10px 12px; border-radius: 12px; background: var(--surface-2); }
+.invite-link .mono { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; font-size: .8rem; }
+.invite-link button { width: auto; }
+.trust-rating { margin: 0; font-size: .9rem; } .trust-rating b { color: #ca8a04; }
+.review { margin: 0; padding: 6px 10px; border-left: 3px solid var(--border); font-size: .82rem; color: var(--muted); }
+.seller-rate input { margin-top: 6px; }

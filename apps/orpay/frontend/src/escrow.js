@@ -296,6 +296,10 @@ export async function renderEscrow(id, preloaded, focus) {
       <button class="primary" data-op="resolve">Resolve dispute</button>`)
   }
   if (e.status === 'disputed' && role !== 'arbiter') acts.push(`<p class="banner warn">This escrow is frozen. ${label(e.arbiter)} will decide how the ${money(e.balance)} is split.</p>`)
+  if (role === 'buyer' && (e.status === 'completed' || e.status === 'resolved'))
+    acts.push(`<div class="rate seller-rate" id="seller-rate" hidden><p class="label">How was ${label(e.seller)}?</p>
+      <div class="stars">${[1, 2, 3, 4, 5].map((n) => `<button class="ghost small" data-sstar="${n}">${'★'.repeat(n)}</button>`).join('')}</div>
+      <input id="review" maxlength="280" placeholder="Optional: a few words for other buyers"></div>`)
   if (e.status === 'resolved' && (role === 'buyer' || role === 'seller'))
     acts.push(`<div class="rate"><p class="label">Rate how ${label(e.arbiter)} handled this dispute</p><div class="stars">${[1, 2, 3, 4, 5].map((n) => `<button class="ghost small" data-star="${n}">${'★'.repeat(n)}</button>`).join('')}</div></div>`)
   if (!acts.length) acts.push(`<p class="muted small-text">${done ? 'This escrow is closed.' : 'Nothing for you to do right now.'}</p>`)
@@ -395,6 +399,22 @@ export async function renderEscrow(id, preloaded, focus) {
       box.hidden = !box.hidden
       if (!box.hidden) ctx.$('#pqr').innerHTML = renderSVG(`${location.origin}/?escrow=${e.id}&action=release`, { border: 1 })
     }
+  if (ctx.$('#seller-rate'))
+    api.myReview(ctx.state.seed, e.id).then((r) => {
+      const box = ctx.$('#seller-rate')
+      if (!box) return
+      if (r.review) box.outerHTML = `<p class="muted small-text">You rated this seller ${'★'.repeat(r.review.stars)}.</p>`
+      else box.hidden = false
+    }).catch(() => {})
+  root.querySelectorAll('[data-sstar]').forEach((b) => (b.onclick = async () => {
+    try {
+      await api.rateSeller(ctx.state.seed, e.id, Number(b.dataset.sstar), ctx.$('#review')?.value ?? '')
+      ctx.toast('Thanks! Your rating helps other buyers.')
+      b.closest('.rate').outerHTML = `<p class="muted small-text">You rated this seller ${'★'.repeat(Number(b.dataset.sstar))}.</p>`
+    } catch (err) {
+      ctx.toast(err.message, 'err')
+    }
+  }))
   root.querySelectorAll('[data-star]').forEach((b) => (b.onclick = async () => {
     try {
       await api.rateArbiter(ctx.state.seed, e.id, Number(b.dataset.star))

@@ -24,6 +24,7 @@ type trustProfile struct {
 	Ajo       ajoStats      `json:"ajo"`
 	Escrow    escrowRep     `json:"escrow"`
 	Badges    []string      `json:"badges"`
+	Rating    sellerRating  `json:"rating"`
 	UpdatedAt time.Time     `json:"updated_at"`
 }
 
@@ -134,6 +135,13 @@ func (s *server) trustOf(a types.Address) (*trustProfile, error) {
 	score += min(30, p.Ajo.OnTime*3) + min(10, p.Ajo.Finished*5)
 	score += min(30, (p.Escrow.SoldCompleted+p.Escrow.BoughtCompleted)*4)
 	score -= p.Ajo.Missed*10 + p.Escrow.Disputes*8 + p.Escrow.Refunded*3
+	if r := s.ratingOf(a); r.Count > 0 { // buyers' verified ratings
+		if r.Average >= 4 {
+			score += min(10, r.Count*2)
+		} else if r.Average < 3 {
+			score -= 10
+		}
+	}
 	p.Score = max(0, min(100, score))
 	p.Level = map[bool]string{true: "new"}[p.Since == 0]
 	switch {
@@ -165,6 +173,10 @@ func (s *server) trustOf(a types.Address) (*trustProfile, error) {
 	})
 	if p.Ajo.Finished > 0 && p.Ajo.Missed == 0 {
 		p.Badges = append(p.Badges, "ajo_perfect")
+	}
+	p.Rating = s.ratingOf(a)
+	if p.Rating.Count >= 3 && p.Rating.Average >= 4.5 {
+		p.Badges = append(p.Badges, "highly_rated")
 	}
 	if p.Escrow.SoldCompleted >= 5 && p.Escrow.Refunded == 0 && p.Escrow.Disputes == 0 {
 		p.Badges = append(p.Badges, "top_seller")

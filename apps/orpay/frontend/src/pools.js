@@ -124,8 +124,11 @@ function renderCreate() {
       <h2>New savings pool</h2>
       <form id="f" class="stack" autocomplete="off">
         <label>Pool name<input id="name" maxlength="64" placeholder="Family ajo" required></label>
-        <div class="templates" aria-label="Start from a template">
-          ${TEMPLATES.map((t, i) => `<button type="button" class="tpl" data-tpl="${i}"><b>${t.name}</b><small>${t.sub}</small></button>`).join('')}
+        <div class="suggest">
+          <span class="suggest-label">Try one</span>
+          <div class="templates" aria-label="Suggestions">
+            ${TEMPLATES.map((t, i) => `<button type="button" class="tpl" data-tpl="${i}" title="${t.sub}">${t.name}</button>`).join('')}
+          </div>
         </div>
         <div class="mode-pick" role="radiogroup" aria-label="Circle type">
           ${MODES.map((m) => `<button type="button" role="radio" data-mode="${m.id}"><b>${m.title}</b><small>${m.sub}</small></button>`).join('')}

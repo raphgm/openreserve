@@ -85,9 +85,29 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
     <section class="lp-wrap lp-sec center" id="product">
       <h2>One payment.<br><span class="lp-grad">Every step visible.</span></h2>
       <div class="lp-trio">
-        <article class="reveal"><i class="c1">${svg(I.up)}</i><h3>Send</h3><p>Pay by @username or QR in seconds.</p></article>
-        <article class="reveal feature"><i class="c3">${svg(I.escrow)}</i><h3>Escrow</h3><p>Money waits until the goods arrive.</p></article>
-        <article class="reveal"><i class="c2">${svg(I.down)}</i><h3>Receive</h3><p>Get paid, see it land instantly.</p></article>
+        <article class="reveal t-send">
+          <div class="t-visual">
+            <div class="t-chip"><span class="t-av" style="--h:262">AO</span><span><b>@adaeze</b><small>Friend</small></span></div>
+            <div class="t-amount">₦25,000</div>
+            <div class="t-pay">Send ${svg(I.up)}</div>
+          </div>
+          <i class="c1">${svg(I.up)}</i><h3>Send</h3><p>Pay anyone by @username or QR in seconds.</p>
+        </article>
+        <article class="reveal t-escrow feature">
+          <div class="t-visual">
+            <div class="t-lock">${svg('<rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/>')}</div>
+            <div class="t-held"><small>Held in escrow</small><b>₦420,000</b></div>
+            <div class="t-steps"><span class="on"></span><span class="on"></span><span class="now"></span><span></span></div>
+          </div>
+          <i class="c3">${svg(I.escrow)}</i><h3>Escrow</h3><p>Money waits until the goods arrive.</p>
+        </article>
+        <article class="reveal t-recv">
+          <div class="t-visual">
+            <div class="t-note"><span class="t-ok">${svg(I.down)}</span><span><b>Payment received</b><small>from @tunde · just now</small></span><em>+₦45,000</em></div>
+            <div class="t-note ghost"><span class="t-ok">${svg(I.down)}</span><span><b>Ajo payout</b><small>Market women ajo</small></span><em>+₦60,000</em></div>
+          </div>
+          <i class="c2">${svg(I.down)}</i><h3>Receive</h3><p>Get paid and see it land instantly.</p>
+        </article>
       </div>
     </section>
 

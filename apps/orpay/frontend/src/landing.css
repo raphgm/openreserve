@@ -261,3 +261,40 @@ body:has(.lp) { background: #f7f7fc; }
 .lp-dark .lp-biz svg { color: #10b981; }
 .lp-dark .lp-btn.white { background: var(--ink); color: #fff; box-shadow: 0 10px 24px -12px rgb(11 16 48 / .8); }
 .lp-dark .lp-code { background: #0b1030; border-color: #1e2550; box-shadow: 0 40px 80px -30px rgb(11 16 48 / .55), 0 0 0 1px rgb(79 70 229 / .08); }
+
+/* Product trio v2: each card shows the feature, not just names it */
+.lp-trio { gap: 20px; }
+.lp-trio article { padding: 0 0 28px; overflow: hidden; display: flex; flex-direction: column; border-radius: 28px; }
+.lp-trio article > i, .lp-trio article > h3, .lp-trio article > p { margin-left: 28px; margin-right: 28px; }
+.lp-trio article > i { margin-top: -22px; position: relative; width: 44px; height: 44px; border-radius: 14px; box-shadow: 0 0 0 4px #fff; }
+.lp-trio h3 { margin-top: 16px; font-size: 1.3rem; }
+.t-visual { height: 190px; position: relative; display: flex; flex-direction: column; justify-content: center; gap: 12px; padding: 24px 28px; background: radial-gradient(120% 90% at 0% 0%, #eef2ff, transparent 60%), #f7f7fc; border-bottom: 1px solid var(--line); }
+.t-escrow .t-visual { background: radial-gradient(90% 90% at 100% 0%, rgb(124 58 237 / .45), transparent 60%), linear-gradient(135deg, #171c58, #0b1030); color: #fff; border: 0; align-items: flex-start; }
+.t-recv .t-visual { background: radial-gradient(120% 90% at 100% 100%, #ecfdf5, transparent 60%), #f7f7fc; }
+.lp-trio article.feature { box-shadow: 0 0 0 1.5px #c7d2fe, 0 24px 48px -28px rgb(79 70 229 / .5); background: #fff; }
+.t-chip { display: flex; align-items: center; gap: 10px; padding: 8px 12px 8px 8px; border-radius: 14px; background: #fff; box-shadow: 0 1px 2px rgb(15 23 42 / .06); width: fit-content; }
+.t-chip > span:last-child { display: flex; flex-direction: column; }
+.t-chip b { font-size: .85rem; } .t-chip small { font-size: .7rem; color: var(--mute); }
+.t-av { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; font-size: .65rem; font-weight: 800; color: #fff; background: hsl(var(--h) 70% 58%); }
+.t-amount { font-size: 2rem; font-weight: 800; letter-spacing: -.04em; }
+.t-pay { position: absolute; right: 24px; bottom: 24px; display: inline-flex; align-items: center; gap: 6px; padding: 8px 14px; border-radius: 12px; background: var(--ink); color: #fff; font-size: .8rem; font-weight: 600; }
+.t-pay svg { width: 14px; height: 14px; }
+.t-lock { width: 40px; height: 40px; border-radius: 12px; display: grid; place-items: center; background: rgb(255 255 255 / .1); box-shadow: inset 0 0 0 1px rgb(255 255 255 / .18); }
+.t-lock svg { color: #a5b4fc; }
+.t-held small { display: block; font-size: .72rem; color: #a5b4fc; letter-spacing: .04em; }
+.t-held b { font-size: 1.9rem; letter-spacing: -.04em; }
+.t-steps { display: flex; gap: 6px; width: 100%; }
+.t-steps span { flex: 1; height: 6px; border-radius: 6px; background: rgb(255 255 255 / .14); }
+.t-steps .on { background: #10b981; }
+.t-steps .now { background: linear-gradient(90deg, #22d3ee, rgb(34 211 238 / .3)); animation: t-pulse 1.8s ease-in-out infinite; }
+@keyframes t-pulse { 50% { opacity: .5; } }
+.t-note { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-radius: 14px; background: #fff; box-shadow: 0 8px 20px -14px rgb(15 23 42 / .3); }
+.t-note.ghost { opacity: .55; transform: scale(.96); }
+.t-note > span:nth-child(2) { flex: 1; display: flex; flex-direction: column; min-width: 0; }
+.t-note b { font-size: .82rem; } .t-note small { font-size: .7rem; color: var(--mute); }
+.t-note em { font-style: normal; font-weight: 700; font-size: .85rem; color: #059669; }
+.t-ok { width: 32px; height: 32px; border-radius: 10px; display: grid; place-items: center; background: #d1fae5; color: #059669; flex: none; }
+.t-ok svg { width: 16px; height: 16px; }
+.lp-trio article:hover .t-note:first-child { transform: translateY(-3px); transition: transform .3s; }
+.lp-trio article:hover .t-pay { transform: translateY(-2px); transition: transform .3s; }
+@media (prefers-reduced-motion: reduce) { .t-steps .now { animation: none; } }

@@ -367,3 +367,19 @@ body:has(.lp) { background: #f7f7fc; }
 .lp-flow-steps b { font-size: .88rem; }
 .lp-life .lp-sub.light { margin-top: 20px; font-size: .95rem; }
 .lp-flow-steps i svg { width: 16px; height: 16px; stroke-width: 2.6; }
+
+/* Product trio v3: equal, slim cards; icon sits beside the title */
+.lp-trio { align-items: stretch; gap: 16px; }
+.lp-trio article, .lp-trio article.feature { padding: 0 0 20px; border-radius: 20px; transform: none; }
+.lp-trio article.feature { box-shadow: 0 0 0 1.5px #a5b4fc, 0 18px 40px -26px rgb(79 70 229 / .55); }
+.t-visual { height: 150px; padding: 18px 20px; gap: 10px; }
+.t-amount, .t-held b { font-size: 1.6rem; }
+.t-head { display: flex; align-items: center; gap: 10px; margin: 18px 20px 6px; }
+.t-head i { width: 32px; height: 32px; border-radius: 10px; margin: 0 !important; box-shadow: none !important; position: static !important; }
+.t-head i svg { width: 16px; height: 16px; }
+.lp-trio .t-head h3 { margin: 0; font-size: 1.1rem; }
+.lp-trio article > p { margin: 0 20px; font-size: .9rem; line-height: 1.5; }
+.t-pay { right: 20px; bottom: 18px; padding: 7px 12px; }
+.t-chip { padding: 6px 10px 6px 6px; } .t-av { width: 28px; height: 28px; border-radius: 9px; }
+.t-note { padding: 8px 10px; } .t-ok { width: 28px; height: 28px; }
+.t-lock { width: 34px; height: 34px; }

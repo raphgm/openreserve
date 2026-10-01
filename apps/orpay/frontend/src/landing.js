@@ -91,7 +91,7 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
             <div class="t-amount">₦25,000</div>
             <div class="t-pay">Send ${svg(I.up)}</div>
           </div>
-          <i class="c1">${svg(I.up)}</i><h3>Send</h3><p>Pay anyone by @username or QR in seconds.</p>
+          <div class="t-head"><i class="c1">${svg(I.up)}</i><h3>Send</h3></div><p>Pay anyone by @username or QR in seconds.</p>
         </article>
         <article class="reveal t-escrow feature">
           <div class="t-visual">
@@ -99,14 +99,14 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
             <div class="t-held"><small>Held in escrow</small><b>₦420,000</b></div>
             <div class="t-steps"><span class="on"></span><span class="on"></span><span class="now"></span><span></span></div>
           </div>
-          <i class="c3">${svg(I.escrow)}</i><h3>Escrow</h3><p>Money waits until the goods arrive.</p>
+          <div class="t-head"><i class="c3">${svg(I.escrow)}</i><h3>Escrow</h3></div><p>Money waits until the goods arrive.</p>
         </article>
         <article class="reveal t-recv">
           <div class="t-visual">
             <div class="t-note"><span class="t-ok">${svg(I.down)}</span><span><b>Payment received</b><small>from @tunde · just now</small></span><em>+₦45,000</em></div>
             <div class="t-note ghost"><span class="t-ok">${svg(I.down)}</span><span><b>Ajo payout</b><small>Market women ajo</small></span><em>+₦60,000</em></div>
           </div>
-          <i class="c2">${svg(I.down)}</i><h3>Receive</h3><p>Get paid and see it land instantly.</p>
+          <div class="t-head"><i class="c2">${svg(I.down)}</i><h3>Receive</h3></div><p>Get paid and see it land instantly.</p>
         </article>
       </div>
     </section>

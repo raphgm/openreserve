@@ -828,3 +828,4 @@ main.wallet { gap: 12px; }
 .danger-link { color: var(--danger) !important; font-weight: 500 !important; }
 video.evidence { width: 100%; max-height: 320px; border-radius: 12px; background: #000; }
 .deliv { font-weight: 700; } .deliv.delivered { color: var(--in); } .deliv.failed { color: var(--danger); }
+textarea { font-family: inherit; }

@@ -302,7 +302,7 @@ export async function renderEscrow(id, preloaded, focus) {
   root.innerHTML = `
     <section class="card escrow-hero" data-escrow-id="${e.id}">
       <button class="link back light" id="back">← Escrow</button>
-      <div class="pool-title"><h2>${req?.app ? ctx.esc(req.app.brand_name || req.app.name) : e.ref ? `#${ctx.esc(e.ref)}` : 'Escrow'}</h2>${statusChip(e.status)}</div>
+      <div class="pool-title"><h2>${req?.app ? ctx.esc(req.app.brand_name || req.app.name) : req?.description ? ctx.esc(req.description) : e.ref ? `#${ctx.esc(e.ref)}` : 'Escrow'}</h2>${statusChip(e.status)}</div>
       ${req?.description ? `<p class="hero-sub">${ctx.esc(req.description)}</p>` : ''}
       <p class="label">${open ? 'Locked in escrow' : 'Escrow total'}</p>
       <p class="amount">${money(open ? e.balance : total(e))}</p>
@@ -478,8 +478,8 @@ export async function renderFundRequest(id) {
       <dl class="summary">
         <dt>Paid to</dt><dd>${label(r.seller)} <span data-trust="${r.seller}"></span></dd>
         <dt>Disputes settled by</dt><dd>${label(r.arbiter)}${r.arbiter_bps ? ` · fee ${r.arbiter_bps / 100}% only if there's a dispute` : ''}</dd>
-        <dt>Delivery deadline</dt><dd>${r.ship_by_days} days after funding</dd>
-        <dt>Your review period</dt><dd>${r.review_days} days after delivery</dd>
+        <dt>Delivery deadline</dt><dd>${r.ship_by_days} day${r.ship_by_days === 1 ? '' : 's'} after funding</dd>
+        <dt>Your review period</dt><dd>${r.review_days} day${r.review_days === 1 ? '' : 's'} after delivery</dd>
       </dl>
       <ul class="milestones">${r.milestones.map((m) => `<li><span>${ctx.esc(m.label)}</span><strong>${money(m.amount)}</strong><span class="pending">Held</span></li>`).join('')}</ul>
       <div id="seller-trust"></div>

@@ -252,3 +252,12 @@ body:has(.lp) { background: #f7f7fc; }
 .lp-status .island { top: 10px; width: 92px; height: 27px; }
 .lp-status .island::after { content: ''; position: absolute; right: 9px; top: 50%; translate: 0 -50%; width: 9px; height: 9px; border-radius: 50%; background: radial-gradient(circle at 35% 35%, #2b3a6b, #07090f 60%); }
 .lp-tabs { padding-bottom: 26px; }
+
+/* Developers: light section so it stands apart from the dark escrow lifecycle */
+.lp-dark { background: linear-gradient(180deg, #ffffff, #f4f5ff); color: var(--ink); border-top: none; border-bottom: 1px solid var(--line); }
+.lp-dark h2 { color: var(--ink); }
+.lp-dark .lp-eyebrow.light { color: #4f46e5; }
+.lp-dark .lp-biz { color: #334155; }
+.lp-dark .lp-biz svg { color: #10b981; }
+.lp-dark .lp-btn.white { background: var(--ink); color: #fff; box-shadow: 0 10px 24px -12px rgb(11 16 48 / .8); }
+.lp-dark .lp-code { background: #0b1030; border-color: #1e2550; box-shadow: 0 40px 80px -30px rgb(11 16 48 / .55), 0 0 0 1px rgb(79 70 229 / .08); }

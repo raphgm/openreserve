@@ -8,7 +8,8 @@
     "build": "vite build",
     "preview": "vite preview",
     "test": "node --test test/*.test.js",
-    "build:native": "vite build && cap sync"
+    "build:native": "vite build && cap sync",
+    "deploy:pages": "test -n \"$VITE_API_BASE\" || (echo \"set VITE_API_BASE=https://<your server>\" && exit 1); vite build && npx wrangler pages deploy dist --project-name orpay"
   },
   "devDependencies": {
     "@capacitor/android": "^8.5.2",

@@ -20,11 +20,13 @@ services:
       target: backend
     restart: unless-stopped
     command: ["-db", "/data/orpay-users.json", "-node", "http://node:8080", "-trust-proxy",
-              "-public-url", "https://${DOMAIN}", "-default-currency", "NGN", "-card-payments"]
+              "-public-url", "${WEB_URL:-https://${DOMAIN}}", "-default-currency", "NGN", "-card-payments"]
     environment:
       # Leave empty on networks with real value to disable the faucet.
       ORPAY_FAUCET_SEED: ${ORPAY_FAUCET_SEED:-}
       ORPAY_ADMINS: ${ORPAY_ADMINS:-}
+      TERMII_API_KEY: ${TERMII_API_KEY:-}
+      DHL_API_KEY: ${DHL_API_KEY:-}
     volumes:
       - orpay-data:/data
     depends_on: [node]
@@ -35,7 +37,7 @@ services:
       dockerfile: apps/gateway/Dockerfile
     restart: unless-stopped
     command: ["-data", "/data", "-node", "http://node:8080", "-backend", "http://orpay-backend:4000",
-              "-public-url", "https://${DOMAIN}", "-trust-proxy"]
+              "-public-url", "${WEB_URL:-https://${DOMAIN}}", "-trust-proxy"]
     environment:
       # Configure one or both providers.
       PAYSTACK_SECRET_KEY: ${PAYSTACK_SECRET_KEY:-}

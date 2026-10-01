@@ -2,6 +2,7 @@
 // Structure: nav, hero with wallet preview, trust strip, features, escrow
 // flow, transparency, developers, call to action.
 import './landing.css'
+import { API_BASE } from './orp.js'
 
 const svg = (d) => `<svg viewBox="0 0 24 24" aria-hidden="true">${d}</svg>`
 const I = {
@@ -185,7 +186,7 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
   const io = 'IntersectionObserver' in window && new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && (e.target.classList.add('in'), io.unobserve(e.target))), { threshold: 0.15 })
   app.querySelectorAll('.reveal').forEach((el, i) => (io ? ((el.style.transitionDelay = `${(i % 4) * 70}ms`), io.observe(el)) : el.classList.add('in')))
 
-  fetch('/v1/status').then((r) => r.json()).then((st) => {
+  fetch(API_BASE + '/v1/status').then((r) => r.json()).then((st) => {
     const el = document.getElementById('lp-live')
     if (el && st.height > 0) el.textContent = `Live on OpenReserve · block ${st.height.toLocaleString()}`
   }).catch(() => {})

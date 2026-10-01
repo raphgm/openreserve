@@ -7,9 +7,9 @@
 		Strict-Transport-Security "max-age=31536000; includeSubDomains"
 		X-Content-Type-Options nosniff
 		Referrer-Policy strict-origin-when-cross-origin
-		Permissions-Policy "camera=(), microphone=(), geolocation=()"
+		Permissions-Policy "camera=(self), microphone=(), geolocation=()"
 		X-Frame-Options DENY
-		Content-Security-Policy "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.paystack.com https://checkout.flutterwave.com"
+		Content-Security-Policy "default-src 'self'; style-src 'self' https://fonts.googleapis.com; font-src https://fonts.gstatic.com; img-src 'self' data: blob:; media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'; base-uri 'self'; form-action 'self' https://checkout.paystack.com https://checkout.flutterwave.com"
 	}
 
 	handle /v1/* {

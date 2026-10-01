@@ -825,3 +825,4 @@ main.wallet { gap: 12px; }
 .card.balance button.ghost { padding: 7px 12px; font-size: .8rem; border-radius: 10px; margin-top: 6px; }
 .card.balance .balance-actions { gap: 6px; }
 .activity .icon { width: 36px; height: 36px; border-radius: 12px; }
+.danger-link { color: var(--danger) !important; font-weight: 500 !important; }

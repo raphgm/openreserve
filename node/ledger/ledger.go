@@ -43,9 +43,10 @@ type AssetDef struct {
 
 // Pool status values.
 const (
-	PoolForming = "forming" // waiting for every member to join
-	PoolActive  = "active"
-	PoolDone    = "done"
+	PoolForming   = "forming" // waiting for every member to join
+	PoolActive    = "active"
+	PoolDone      = "done"
+	PoolCancelled = "cancelled" // deleted by its organiser before it started
 )
 
 // Pool is an on-chain rotating savings pool. Its balance is held by the
@@ -611,8 +612,8 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 		}
 		j := p.index(op.Other)
 		switch {
-		case p.Status == PoolDone:
-			return nil, fmt.Errorf("%w: pool is finished", ErrPool)
+		case p.Status != PoolForming && p.Status != PoolActive:
+			return nil, fmt.Errorf("%w: pool is %s", ErrPool, p.Status)
 		case j < 0 || j == i:
 			return nil, fmt.Errorf("%w: swap partner must be another member", ErrPool)
 		case p.Claimed[i] || p.Claimed[j]:
@@ -660,8 +661,8 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 		if goal {
 			return nil, fmt.Errorf("%w: goal circles have no rounds", ErrPool)
 		}
-		if p.Status == PoolDone {
-			return nil, fmt.Errorf("%w: pool is finished", ErrPool)
+		if p.Status != PoolForming && p.Status != PoolActive {
+			return nil, fmt.Errorf("%w: pool is %s", ErrPool, p.Status)
 		}
 		if op.Contribution%p.Contribution != 0 {
 			return nil, fmt.Errorf("%w: autopay must be a whole number of contributions (%s each)", ErrPool, types.FormatAmount(p.Contribution))
@@ -679,6 +680,28 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 			}
 			p.Prepaid[i] += op.Contribution
 			p.autopay()
+		}, nil
+
+	case types.PoolCancel:
+		if tx.From != p.Creator {
+			return nil, fmt.Errorf("%w: only the organiser can delete the circle", ErrPool)
+		}
+		if p.Status != PoolForming {
+			return nil, fmt.Errorf("%w: a circle that has started can't be deleted: members' money is in it", ErrPool)
+		}
+		return func() {
+			// Give back everything held: deposits and autopay set aside.
+			for j, m := range p.Members {
+				if p.Deposits != nil && p.Deposits[j] > 0 {
+					s.credit(m, p.Asset, p.Deposits[j])
+					p.Deposits[j] = 0
+				}
+				if p.Prepaid != nil && p.Prepaid[j] > 0 {
+					s.credit(m, p.Asset, p.Prepaid[j])
+					p.Prepaid[j] = 0
+				}
+			}
+			p.Status = PoolCancelled
 		}, nil
 
 	case types.PoolStopAutopay:

@@ -286,6 +286,7 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/ajo-invites/{id}/join", strict(30, 10, reqauth.Signed(s.joinDraft)))
 	mux.Handle("POST /api/ajo-invites/{id}/leave", strict(30, 10, reqauth.Signed(s.leaveDraft)))
 	mux.Handle("POST /api/ajo-invites/{id}/order", strict(30, 10, reqauth.Signed(s.orderDraft)))
+	mux.Handle("POST /api/ajo-invites/{id}/delete", strict(20, 5, reqauth.Signed(s.deleteDraft)))
 	mux.Handle("POST /api/ajo-invites/{id}/remove", strict(30, 10, reqauth.Signed(s.removeFromDraft)))
 	mux.Handle("POST /api/pools/{id}/nudge", strict(20, 5, reqauth.Signed(s.nudgePool)))
 	mux.Handle("POST /api/ajo-invites/{id}/started", strict(30, 10, reqauth.Signed(s.startedDraft)))

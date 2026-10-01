@@ -38,7 +38,7 @@ export function duePools(pools, me) {
 }
 
 const statusChip = (p) =>
-  ({ forming: '<span class="chip-s warn">Waiting for members</span>', active: '<span class="chip-s ok">Active</span>', done: '<span class="chip-s">Completed</span>' })[p.status]
+  ({ forming: '<span class="chip-s warn">Waiting for members</span>', active: '<span class="chip-s ok">Active</span>', done: '<span class="chip-s">Completed</span>', cancelled: '<span class="chip-s bad">Deleted</span>' })[p.status]
 
 export async function renderPools() {
   const root = ctx.root()
@@ -269,6 +269,8 @@ function renderGoal(p, history, money) {
   if (me < 0) action = '<p class="muted small-text">You are viewing this circle.</p>'
   else if (p.status === 'forming' && !p.joined[me]) action = '<button class="primary" data-op="join">Join circle</button>'
   else if (p.status === 'forming') action = `<p class="muted small-text">Waiting for ${p.joined.filter((j) => !j).length} member(s) to join.</p>`
+  if (p.status === 'cancelled') action = '<p class="muted small-text">The organiser deleted this circle before it started.</p>'
+  else if (p.status === 'forming' && p.creator === ctx.state.address) action += '<button class="link danger-link" id="cancel-circle">Delete this circle</button>'
   else {
     if (p.status === 'active') action += `<div class="part-pay"><input id="save-amt" inputmode="decimal" placeholder="Amount (suggested ${money(p.contribution)})"><button class="primary small" id="save-go">Save</button></div>`
     if (unlocked && mine > 0n) action += `<button class="primary" id="withdraw-go">Take my savings · ${money(mine)}</button>`
@@ -309,6 +311,8 @@ function renderGoal(p, history, money) {
         ctx.$('#err').textContent = err.message
       }
     }
+  if (ctx.$('#cancel-circle'))
+    ctx.$('#cancel-circle').onclick = (e) => confirm('Delete this circle? This cannot be undone.') && run(e.target, { op: 'cancel' }, 'Circle deleted')
   if (ctx.$('#withdraw-go')) ctx.$('#withdraw-go').onclick = (e) => run(e.target, { op: 'withdraw' }, `${money(mine)} is back in your wallet`)
 }
 
@@ -406,6 +410,8 @@ export async function renderPool(id, preloaded) {
   if (me < 0) action = '<p class="muted small-text">You are viewing this pool. Only members can take part.</p>'
   else if (p.status === 'forming' && !p.joined[me]) action = `<button class="primary" data-op="join">Join pool</button>`
   else if (p.status === 'forming') action = `<p class="muted small-text">Waiting for ${n - p.joined.filter(Boolean).length} member(s) to join.</p>`
+  if (p.status === 'cancelled') action = '<p class="muted small-text">The organiser deleted this circle before it started. Any deposits were returned.</p>'
+  if (p.status === 'forming' && p.creator === ctx.state.address) action += '<button class="link danger-link" id="cancel-circle">Delete this circle</button>'
   else if (p.status === 'active') {
     const btns = []
     if (!p.paid[me]) {
@@ -536,6 +542,9 @@ export async function renderPool(id, preloaded) {
     if (v === 0n) throw new Error('Enter an amount.')
     return v
   }
+  if (ctx.$('#cancel-circle'))
+    ctx.$('#cancel-circle').onclick = (e) =>
+      confirm('Delete this circle? Anyone who joined gets their deposit back. This cannot be undone.') && run(e.target, { op: 'cancel' }, 'Circle deleted')
   if (ctx.$('#nudge'))
     ctx.$('#nudge').onclick = async (e) => {
       e.target.disabled = true
@@ -637,8 +646,10 @@ export async function renderInvite(id) {
       <h2>Payout order</h2>
       <ul class="members">${d.members.map((m, i) => `<li class="${m === me ? 'me' : ''}"><span class="pos">${i + 1}</span><span class="who"><strong>${label(m)}</strong>${m === d.organizer ? '<span class="small-text muted">Organiser</span>' : ''}</span>
         ${organizer && d.members.length > 1 ? `<span class="row-actions"><button class="ghost small" data-up="${i}" ${i === 0 ? 'disabled' : ''}>↑</button><button class="ghost small" data-down="${i}" ${i === d.members.length - 1 ? 'disabled' : ''}>↓</button>${m !== d.organizer ? `<button class="ghost small" data-remove="${m}" aria-label="Remove">✕</button>` : ''}</span>` : ''}</li>`).join('')}</ul>
-      ${organizer ? `<button class="primary" id="start" ${d.members.length < 2 ? 'disabled' : ''}>Start the pool with ${d.members.length} member${d.members.length === 1 ? '' : 's'}</button>
-        <p class="hint">Starting puts the pool on-chain with this order. Members then confirm${d.deposit ? ' and pay their deposit' : ''}.</p>` : ''}
+      ${organizer && d.status === 'open' ? `<button class="primary" id="start" ${d.members.length < 2 ? 'disabled' : ''}>Start the pool with ${d.members.length} member${d.members.length === 1 ? '' : 's'}</button>
+        <p class="hint">Starting puts the pool on-chain with this order. Members then confirm${d.deposit ? ' and pay their deposit' : ''}.</p>
+        <button class="link danger-link" id="delete-invite">Delete this circle</button>` : ''}
+      ${d.status === 'cancelled' ? '<p class="banner">The organiser deleted this circle.</p>' : ''}
     </section>`
   ctx.$('#back').onclick = renderPools
   const qr = ctx.$('#qr')
@@ -665,6 +676,10 @@ export async function renderInvite(id) {
   if (join) join.onclick = () => (ctx.state.seed ? act(join, () => api.inviteAction(ctx.state.seed, id, 'join')) : ctx.requireWallet())
   const leave = ctx.$('#leave')
   if (leave) leave.onclick = () => act(leave, () => api.inviteAction(ctx.state.seed, id, 'leave'))
+  if (ctx.$('#delete-invite'))
+    ctx.$('#delete-invite').onclick = (e) =>
+      confirm('Delete this circle? Everyone who joined the invite will see it was deleted.') &&
+      act(e.target, () => api.inviteAction(ctx.state.seed, id, 'delete'))
   ctx.root().querySelectorAll('[data-remove]').forEach((b) => (b.onclick = () =>
     confirm(`Remove ${label(b.dataset.remove)} from this circle?`) && act(b, () => api.inviteAction(ctx.state.seed, id, 'remove', { member: b.dataset.remove }))))
   const move = (i, j) => {

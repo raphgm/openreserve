@@ -194,3 +194,33 @@ func compareAddr(a, b types.Address) int {
 	}
 	return 0
 }
+
+func TestCircleCancel(t *testing.T) {
+	f, c, ms, send := circleEnv(t)
+	_ = f
+	op := &types.PoolOp{Op: types.PoolCreate, Name: "circle", Contribution: 10 * types.Unit, RoundSecs: 7 * 24 * 3600, Deposit: 10 * types.Unit,
+		Members: []types.Address{ms[0].addr, ms[1].addr, ms[2].addr}}
+	if err := send(ms[0], op); err != nil {
+		t.Fatal(err)
+	}
+	var id types.Hash
+	for _, p := range c.PoolsOf(ms[0].addr) {
+		id = p.ID
+	}
+	send(ms[1], &types.PoolOp{Op: types.PoolJoin, ID: id}) // bob joins and pays his deposit
+	if err := send(ms[1], &types.PoolOp{Op: types.PoolCancel, ID: id}); !errors.Is(err, ledger.ErrPool) {
+		t.Fatalf("non-organiser deleted the circle: %v", err)
+	}
+	bob, _ := c.Account(ms[1].addr)
+	if err := send(ms[0], &types.PoolOp{Op: types.PoolCancel, ID: id}); err != nil {
+		t.Fatal(err)
+	}
+	bobAfter, _ := c.Account(ms[1].addr)
+	if p := c.Pool(id); p.Status != ledger.PoolCancelled || bobAfter.Balance != bob.Balance+10*types.Unit {
+		t.Fatalf("cancel: status %s, bob +%d", p.Status, bobAfter.Balance-bob.Balance)
+	}
+	if err := send(ms[2], &types.PoolOp{Op: types.PoolJoin, ID: id}); !errors.Is(err, ledger.ErrPool) {
+		t.Fatalf("joined a deleted circle: %v", err)
+	}
+	checkSupply(t, c)
+}

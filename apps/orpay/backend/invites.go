@@ -20,9 +20,10 @@ import (
 // it there. Nothing here holds money.
 
 const (
-	DraftOpen    = "open"
-	DraftStarted = "started"
-	maxDraftSize = types.MaxPoolMembers
+	DraftOpen      = "open"
+	DraftStarted   = "started"
+	DraftCancelled = "cancelled"
+	maxDraftSize   = types.MaxPoolMembers
 )
 
 type PoolDraft struct {
@@ -282,6 +283,21 @@ func (s *server) removeFromDraft(w http.ResponseWriter, r *http.Request) {
 			return errors.New("the organiser cannot be removed")
 		}
 		d.Members = slices.DeleteFunc(d.Members, func(a types.Address) bool { return a == req.Member })
+		return nil
+	})
+}
+
+// deleteDraft lets the organiser delete an invite that hasn't started.
+func (s *server) deleteDraft(w http.ResponseWriter, r *http.Request) {
+	me := reqauth.Caller(r)
+	s.changeDraft(w, r, func(d *PoolDraft) error {
+		switch {
+		case me != d.Organizer:
+			return errors.New("only the organiser can delete this circle")
+		case d.Status != DraftOpen:
+			return errors.New("this circle has already started; delete it from the pool page before everyone joins")
+		}
+		d.Status = DraftCancelled
 		return nil
 	})
 }

@@ -144,6 +144,7 @@ const (
 	PoolBid      = "bid"      // bidding circles: offer a discount to collect next (Contribution = discount)
 	PoolSwap     = "swap"     // trade payout turns with Other; done when both have asked
 	PoolWithdraw = "withdraw" // savings-goal circles: take your savings out once the goal is met or due
+	PoolCancel   = "cancel"   // the creator deletes a circle before it starts; deposits are returned
 
 	// Circle modes.
 	PoolRotation = ""        // fixed payout order
@@ -687,7 +688,7 @@ func (tx *Tx) checkPoolOp() error {
 		if p.Name != "" || len(p.Members) != 0 || p.RoundSecs != 0 || p.Deposit != 0 {
 			return errors.New("autopay takes a pool id and an amount")
 		}
-	case PoolJoin, PoolClaim, PoolStopAutopay, PoolWithdraw:
+	case PoolJoin, PoolClaim, PoolStopAutopay, PoolWithdraw, PoolCancel:
 		if p.ID == (Hash{}) {
 			return errors.New("pool id required")
 		}

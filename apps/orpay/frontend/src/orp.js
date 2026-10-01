@@ -254,6 +254,7 @@ export async function poolOp({ seed, op, id, name, members, contribution, roundS
     if (roundSecs) pool.round_secs = roundSecs
     if (deposit) pool.deposit = BigInt(deposit)
   }
+  if (op === 'autopay') pool.contribution = BigInt(contribution)
   const tx = await signTx(
     { chain_id: st.chain_id, from, to: '', amount: 0n, fee: feeFor(st, asset), nonce: acc.next_nonce, memo: '', pool, ...(asset ? { asset } : {}) },
     seed,

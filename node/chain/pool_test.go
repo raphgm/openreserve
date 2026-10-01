@@ -281,3 +281,75 @@ func TestPoolScheduleValidation(t *testing.T) {
 		}
 	}
 }
+
+func TestPoolAutopay(t *testing.T) {
+	f := newFixture(t)
+	carol := newActor(t)
+	f.g.Allocations = []Allocation{
+		{Address: f.alice.addr, Amount: 100 * types.Unit},
+		{Address: f.bob.addr, Amount: 100 * types.Unit},
+		{Address: carol.addr, Amount: 100 * types.Unit},
+	}
+	c := f.open(t.TempDir())
+	nonce := map[types.Address]uint64{}
+	next := func(a actor) uint64 { n := nonce[a.addr]; nonce[a.addr]++; return n }
+	send := func(a actor, op *types.PoolOp) error {
+		_, err := c.Submit(f.poolTx(a, nonce[a.addr], op))
+		if err == nil {
+			nonce[a.addr]++
+			f.produce(c)
+		}
+		return err
+	}
+	must := func(a actor, op *types.PoolOp) {
+		t.Helper()
+		if err := send(a, op); err != nil {
+			t.Fatal(err)
+		}
+	}
+	contribution := 10 * types.Unit
+	create := f.poolTx(f.alice, next(f.alice), &types.PoolOp{Op: types.PoolCreate, Name: "auto",
+		Members: []types.Address{f.alice.addr, f.bob.addr, carol.addr}, Contribution: contribution})
+	if _, err := c.Submit(create); err != nil {
+		t.Fatal(err)
+	}
+	f.produce(c)
+	id := create.ID()
+
+	// Bob sets aside all three rounds before the pool even starts.
+	if err := send(f.bob, &types.PoolOp{Op: types.PoolAutopay, ID: id, Contribution: 5 * types.Unit}); !errors.Is(err, ledger.ErrPool) {
+		t.Fatalf("partial contribution accepted: %v", err)
+	}
+	if err := send(f.bob, &types.PoolOp{Op: types.PoolAutopay, ID: id, Contribution: 4 * contribution}); !errors.Is(err, ledger.ErrPool) {
+		t.Fatalf("more rounds than the pool has: %v", err)
+	}
+	must(f.bob, &types.PoolOp{Op: types.PoolAutopay, ID: id, Contribution: 3 * contribution})
+	must(f.bob, &types.PoolOp{Op: types.PoolJoin, ID: id})
+	must(carol, &types.PoolOp{Op: types.PoolJoin, ID: id})
+
+	// The pool starts: bob is already paid for round 1.
+	if p := c.Pool(id); !p.Paid[1] || p.Prepaid[1] != 2*contribution {
+		t.Fatalf("round 1 autopay: paid=%v prepaid=%v", p.Paid, p.Prepaid)
+	}
+	must(f.alice, &types.PoolOp{Op: types.PoolContribute, ID: id})
+	must(carol, &types.PoolOp{Op: types.PoolContribute, ID: id})
+	must(f.alice, &types.PoolOp{Op: types.PoolClaim, ID: id})
+	// Round 2 starts with bob paid again, without him doing anything.
+	if p := c.Pool(id); p.Round != 1 || !p.Paid[1] || p.Prepaid[1] != contribution {
+		t.Fatalf("round 2 autopay: round=%d paid=%v prepaid=%v", p.Round, p.Paid, p.Prepaid)
+	}
+	// Carol sets up autopay mid-pool, then changes her mind.
+	must(carol, &types.PoolOp{Op: types.PoolAutopay, ID: id, Contribution: 2 * contribution})
+	if p := c.Pool(id); !p.Paid[2] || p.Prepaid[2] != contribution {
+		t.Fatalf("carol autopay: paid=%v prepaid=%v", p.Paid, p.Prepaid)
+	}
+	before, _ := c.Account(carol.addr)
+	must(carol, &types.PoolOp{Op: types.PoolStopAutopay, ID: id})
+	after, _ := c.Account(carol.addr)
+	if after.Balance != before.Balance+contribution-minFee {
+		t.Fatalf("stop autopay refund: %d -> %d", before.Balance, after.Balance)
+	}
+	if sumBalances(c) != c.Status().Supply {
+		t.Fatalf("money created or lost: balances %d != supply %d", sumBalances(c), c.Status().Supply)
+	}
+}

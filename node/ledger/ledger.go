@@ -70,6 +70,32 @@ type Pool struct {
 	Deposits  []types.Amount `json:"deposits,omitempty"`   // deposit still held per member
 	Defaults  []int          `json:"defaults,omitempty"`   // missed payments per member
 	PaidOut   []types.Amount `json:"paid_out,omitempty"`   // what each member received
+	// Autopay: money each member set aside for future rounds (nil if none).
+	Prepaid []types.Amount `json:"prepaid,omitempty"`
+}
+
+// rounds left that member i still has to pay for, including the current one.
+func (p *Pool) roundsLeft(i int) int {
+	n := len(p.Members) - p.Round
+	if p.Status == PoolActive && p.Paid[i] {
+		n--
+	}
+	return n
+}
+
+// autopay pays this round's contribution for every member with enough set
+// aside. It runs when a pool starts, after each payout and on autopay.
+func (p *Pool) autopay() {
+	if p.Prepaid == nil || p.Status != PoolActive {
+		return
+	}
+	for j := range p.Members {
+		if !p.Paid[j] && p.Prepaid[j] >= p.Contribution {
+			p.Prepaid[j] -= p.Contribution
+			p.Paid[j] = true
+			p.Balance += p.Contribution
+		}
+	}
 }
 
 // Scheduled reports whether rounds have due dates.
@@ -78,11 +104,15 @@ func (p *Pool) Scheduled() bool { return p.RoundSecs > 0 }
 // DueAt is when round r's contributions are due (unix ms).
 func (p *Pool) DueAt(r int) int64 { return p.StartedAt + int64(r+1)*p.RoundSecs*1000 }
 
-// Held is the total of deposits still held.
+// Held is the money the pool holds besides this round's pot: deposits and
+// autopay set aside for future rounds.
 func (p *Pool) Held() types.Amount {
 	var t types.Amount
 	for _, d := range p.Deposits {
 		t += d
+	}
+	for _, a := range p.Prepaid {
+		t += a
 	}
 	return t
 }
@@ -101,6 +131,7 @@ func (p *Pool) clone() *Pool {
 	c.Deposits = slices.Clone(p.Deposits)
 	c.Defaults = slices.Clone(p.Defaults)
 	c.PaidOut = slices.Clone(p.PaidOut)
+	c.Prepaid = slices.Clone(p.Prepaid)
 	return &c
 }
 
@@ -304,6 +335,8 @@ func (s *State) Cost(tx *types.Tx) types.Amount {
 		}
 	case tx.Pool != nil && tx.Pool.Op == types.PoolCreate:
 		return tx.Pool.Deposit + tx.Fee
+	case tx.Pool != nil && tx.Pool.Op == types.PoolAutopay:
+		return tx.Pool.Contribution + tx.Fee
 	case tx.Pool != nil && tx.Pool.Op == types.PoolJoin:
 		if p := s.Pools[tx.Pool.ID]; p != nil {
 			return p.Deposit + tx.Fee
@@ -470,6 +503,7 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 			if !slices.Contains(p.Joined, false) {
 				p.Status = PoolActive
 				p.StartedAt = s.Now
+				p.autopay()
 			}
 		}, nil
 
@@ -524,8 +558,18 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 			p.Claimed[i] = true
 			p.Round++
 			clear(p.Paid)
+			if p.Round < len(p.Members) {
+				p.autopay()
+			}
 			if p.Round == len(p.Members) {
 				p.Status = PoolDone
+				// Return anything still set aside for autopay.
+				for j, a := range p.Prepaid {
+					if a > 0 {
+						s.credit(p.Members[j], p.Asset, a)
+						p.Prepaid[j] = 0
+					}
+				}
 				// Return whatever deposit each member still has.
 				for j, d := range p.Deposits {
 					if d > 0 {
@@ -534,6 +578,37 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 					}
 				}
 			}
+		}, nil
+
+	case types.PoolAutopay:
+		if p.Status == PoolDone {
+			return nil, fmt.Errorf("%w: pool is finished", ErrPool)
+		}
+		if op.Contribution%p.Contribution != 0 {
+			return nil, fmt.Errorf("%w: autopay must be a whole number of contributions (%s each)", ErrPool, types.FormatAmount(p.Contribution))
+		}
+		have := types.Amount(0)
+		if p.Prepaid != nil {
+			have = p.Prepaid[i]
+		}
+		if int(have/p.Contribution)+int(op.Contribution/p.Contribution) > p.roundsLeft(i) {
+			return nil, fmt.Errorf("%w: that is more than the %d rounds left to pay", ErrPool, p.roundsLeft(i))
+		}
+		return func() {
+			if p.Prepaid == nil {
+				p.Prepaid = make([]types.Amount, len(p.Members))
+			}
+			p.Prepaid[i] += op.Contribution
+			p.autopay()
+		}, nil
+
+	case types.PoolStopAutopay:
+		if p.Prepaid == nil || p.Prepaid[i] == 0 {
+			return nil, fmt.Errorf("%w: no autopay set up", ErrPool)
+		}
+		return func() {
+			s.credit(tx.From, p.Asset, p.Prepaid[i])
+			p.Prepaid[i] = 0
 		}, nil
 	}
 	return nil, fmt.Errorf("unknown pool op %q", op.Op)
@@ -758,6 +833,12 @@ func (s *State) Root() types.Hash {
 				u64(p.Deposits[j])
 				u64(uint64(p.Defaults[j]))
 				u64(p.PaidOut[j])
+			}
+		}
+		if p.Prepaid != nil { // hashed only once autopay is used: older roots unchanged
+			h.Write([]byte("autopay"))
+			for _, a := range p.Prepaid {
+				u64(a)
 			}
 		}
 	}

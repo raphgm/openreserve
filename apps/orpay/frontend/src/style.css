@@ -684,3 +684,6 @@ main.wallet { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 @keyframes scan { to { top: 90%; } }
 .scan-hint { position: absolute; bottom: 18%; left: 0; right: 0; text-align: center; color: #fff; font-weight: 600; }
 .scan-close { position: absolute; top: calc(16px + env(safe-area-inset-top)); right: 16px; width: 44px; height: 44px; border-radius: 50%; padding: 0; background: rgb(255 255 255 / .15); color: #fff; border: 0; font-size: 1.1rem; }
+.autopay-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+.autopay-row label { flex: 1; min-width: 160px; }
+.autopay-row button { width: auto; }

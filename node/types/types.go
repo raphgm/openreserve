@@ -135,6 +135,11 @@ const (
 	PoolJoin       = "join"
 	PoolContribute = "contribute"
 	PoolClaim      = "claim"
+	// Autopay: a member locks money in the pool for future rounds; each
+	// round's contribution is taken from it automatically. Stop returns
+	// whatever is left. Contribution carries the amount to lock.
+	PoolAutopay     = "autopay"
+	PoolStopAutopay = "stop_autopay"
 
 	MaxPoolMembers = 50
 	MaxPoolName    = 64
@@ -593,7 +598,17 @@ func (tx *Tx) checkPoolOp() error {
 		if p.Deposit != 0 && p.RoundSecs == 0 {
 			return errors.New("a deposit needs a round schedule (round_secs)")
 		}
-	case PoolJoin, PoolContribute, PoolClaim:
+	case PoolAutopay:
+		if p.ID == (Hash{}) {
+			return errors.New("pool id required")
+		}
+		if p.Contribution == 0 {
+			return errors.New("autopay needs an amount (contribution)")
+		}
+		if p.Name != "" || len(p.Members) != 0 || p.RoundSecs != 0 || p.Deposit != 0 {
+			return errors.New("autopay takes a pool id and an amount")
+		}
+	case PoolJoin, PoolContribute, PoolClaim, PoolStopAutopay:
 		if p.ID == (Hash{}) {
 			return errors.New("pool id required")
 		}

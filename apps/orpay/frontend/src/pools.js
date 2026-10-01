@@ -285,6 +285,24 @@ export async function renderPool(id, preloaded) {
     action = btns.join('')
   } else action = '<p class="muted small-text">This pool has finished. Every member received their pot.</p>'
 
+  // Autopay: money set aside in the pool pays each round automatically.
+  const prepaid = me >= 0 ? BigInt(p.prepaid?.[me] ?? 0) : 0n
+  const each = BigInt(p.contribution)
+  const covered = Number(prepaid / each)
+  const left = me < 0 || p.status === 'done' ? 0 : n - (p.status === 'active' ? p.round : 0) - (p.status === 'active' && p.paid[me] ? 1 : 0)
+  const canAdd = Math.max(0, left - covered)
+  const autopay = me < 0 || p.status === 'done' ? '' : `
+    <section class="card autopay">
+      <div class="section-head"><h2>Autopay</h2>${covered ? `<span class="chip-s ok">On · ${covered} round${covered === 1 ? '' : 's'}</span>` : '<span class="chip-s">Off</span>'}</div>
+      <p class="muted small-text">Set money aside in the pool and each round is paid for you automatically, even if you forget to open ORPay. It stays in the pool, not with anyone else, and you can stop any time to get back what hasn't been used.</p>
+      ${canAdd ? `<div class="autopay-row">
+        <label>Rounds to cover<select id="ap-rounds">${Array.from({ length: canAdd }, (_, k) => `<option value="${k + 1}" ${k + 1 === canAdd ? 'selected' : ''}>${k + 1} round${k ? 's' : ''} · ${money(each * BigInt(k + 1))}</option>`).join('')}</select></label>
+        <button class="primary" id="ap-on">${covered ? 'Add rounds' : 'Turn on autopay'}</button>
+      </div>` : covered ? '<p class="small-text">Every remaining round is covered.</p>' : ''}
+      ${covered ? `<button class="ghost small" id="ap-off">Stop autopay · return ${money(prepaid)}</button>` : ''}
+      <p class="error" id="ap-err"></p>
+    </section>`
+
   root.innerHTML = `
     <section class="card pool-hero" data-pool-id="${p.id}">
       <button class="link back light" id="back">← Pools</button>
@@ -305,6 +323,7 @@ export async function renderPool(id, preloaded) {
       <div class="stack" id="actions">${action}</div>
       <p class="error" id="err"></p>
     </section>
+    ${autopay}
     <section class="card">
       <h2>Members & payout order</h2>
       <ul class="members">${rows}</ul>
@@ -334,6 +353,26 @@ export async function renderPool(id, preloaded) {
     const link = `${location.origin}/?pool=${p.id}`
     navigator.clipboard.writeText(link).then(() => ctx.toast('Pool link copied'))
   }
+  const apRun = async (btn, args, done) => {
+    const t = btn.textContent
+    btn.disabled = true
+    btn.textContent = 'Confirming…'
+    try {
+      await waitForCommit(await poolOp({ seed: ctx.state.seed, id: p.id, asset: p.asset ?? '', ...args }))
+      ctx.toast(done)
+      renderPool(p.id)
+    } catch (err) {
+      ctx.$('#ap-err').textContent = err.message
+      btn.disabled = false
+      btn.textContent = t
+    }
+  }
+  if (ctx.$('#ap-on'))
+    ctx.$('#ap-on').onclick = (e) =>
+      apRun(e.target, { op: 'autopay', contribution: each * BigInt(ctx.$('#ap-rounds').value) }, 'Autopay is on')
+  if (ctx.$('#ap-off'))
+    ctx.$('#ap-off').onclick = (e) =>
+      confirm(`Stop autopay and return ${money(prepaid)} to your wallet?`) && apRun(e.target, { op: 'stop_autopay' }, 'Autopay stopped')
   root.querySelectorAll('[data-op]').forEach(
     (b) =>
       (b.onclick = async () => {

@@ -633,3 +633,13 @@ button.pulse { animation: btn-pulse 1.6s ease-in-out 3; }
 a.logo { text-decoration: none; color: inherit; }
 .words.six { grid-template-columns: repeat(3, 1fr); }
 .banner.ok { background: var(--in-bg); color: var(--in); }
+
+/* Bottom tab bar spans the full device width, like a native app */
+.tabbar {
+  left: 0; right: 0; bottom: 0; transform: none; width: auto; border-radius: 0;
+  border: 0; border-top: 1px solid var(--border);
+  padding: 6px max(12px, calc((100vw - 520px) / 2)) calc(6px + env(safe-area-inset-bottom));
+  background: rgb(255 255 255 / .9); box-shadow: 0 -8px 24px -16px rgb(15 23 42 / .2);
+}
+.tabbar button { border-radius: 14px; padding: 8px 4px; }
+main.wallet { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }

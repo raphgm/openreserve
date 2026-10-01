@@ -17,6 +17,16 @@ import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './va
 
 const app = document.getElementById('app')
 
+// Theme: follow the phone (default), or a fixed light/dark choice.
+const THEME = 'orpay.theme'
+function applyTheme(t = localStorage.getItem(THEME) ?? 'system') {
+  if (t === 'system') delete document.documentElement.dataset.theme
+  else document.documentElement.dataset.theme = t
+}
+try {
+  applyTheme()
+} catch {}
+
 const state = {
   seed: null,
   address: null,
@@ -138,6 +148,7 @@ function renderProfile() {
     ${item('m-words', '24', 'Recovery words', 'Your offline backup')}
     ${item('m-bio', '☝︎', 'Face ID / fingerprint', bioEnabled() ? 'On: unlock without your password' : 'Unlock without typing your password')}
     ${item('m-notify', '🔔', 'Notifications', 'Payments, ajo turns, escrow updates')}
+    ${item('m-theme', '◐', 'Theme', { system: 'Follows your phone', light: 'Light', dark: 'Dark' }[localStorage.getItem(THEME) ?? 'system'])}
     ${item('m-lock', '⎋', 'Sign out', 'Lock the wallet on this device', 'danger')}
     ${item('m-forget', '✕', 'Remove from this device', 'Needs your six or 24 words to sign in again', 'danger subtle')}
   </div>`
@@ -164,6 +175,15 @@ function renderProfile() {
     } catch (err) {
       if (err.name !== 'NotAllowedError') toast(err.message, 'err')
     }
+  })
+  on('#m-theme', () => {
+    const order = ['system', 'light', 'dark']
+    const next = order[(order.indexOf(localStorage.getItem(THEME) ?? 'system') + 1) % 3]
+    try {
+      localStorage.setItem(THEME, next)
+    } catch {}
+    applyTheme(next)
+    renderProfile()
   })
   on('#m-lock', lock)
   on('#m-forget', () => {
@@ -975,15 +995,34 @@ function renderActivity() {
   if (!state.history.length) return (ul.innerHTML = '<li class="empty"><span class="empty-ico"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 9h13l-3-3M19 15H6l3 3"/></svg></span><strong>No payments yet</strong><small>Add money or ask a friend to pay you.</small></li>')
   const all = state.allActivity || state.history.length <= 6
   $('#see-all').hidden = all
+  const dayOf = (t) => {
+    const d = new Date(t), today = new Date()
+    const start = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime()
+    const diff = Math.round((start(today) - start(d)) / 86400000)
+    return diff === 0 ? 'Today' : diff === 1 ? 'Yesterday' : diff < 7 ? d.toLocaleDateString([], { weekday: 'long' }) : d.toLocaleDateString([], { day: 'numeric', month: 'short', year: d.getFullYear() === today.getFullYear() ? undefined : 'numeric' })
+  }
+  let lastDay = ''
   ul.innerHTML = (all ? state.history : state.history.slice(0, 6))
     .map((e) => {
+      const day = dayOf(e.time)
+      const head = day !== lastDay ? `<li class="day">${day}</li>` : ''
+      lastDay = day
+      return head + activityRow(e)
+    })
+    .join('')
+  ul.querySelectorAll('[data-pool]').forEach((li) => (li.onclick = () => showView('pools', () => renderPool(li.dataset.pool))))
+  ul.querySelectorAll('[data-escrow]').forEach((li) => (li.onclick = () => showView('escrow', () => renderEscrow(li.dataset.escrow))))
+}
+
+function activityRow(e) {
+  return [e].map((e) => {
       if (e.tx.pool) return poolActivity(e)
       if (e.tx.escrow) return escrowActivity(e)
       if (e.tx.kind === 'mint' || e.tx.kind === 'burn') return cashActivity(e)
       const out = e.tx.from === state.address
       const other = out ? e.tx.to : e.tx.from
       const name = state.names.get(other)
-      const when = new Date(e.time).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+      const when = new Date(e.time).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
       return `
         <li>
           <span class="icon ${out ? 'out' : 'in'}" aria-hidden="true">${out ? '↑' : '↓'}</span>
@@ -995,8 +1034,6 @@ function renderActivity() {
         </li>`
     })
     .join('')
-  ul.querySelectorAll('[data-pool]').forEach((li) => (li.onclick = () => showView('pools', () => renderPool(li.dataset.pool))))
-  ul.querySelectorAll('[data-escrow]').forEach((li) => (li.onclick = () => showView('escrow', () => renderEscrow(li.dataset.escrow))))
 }
 
 function cashActivity(e) {

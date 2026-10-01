@@ -1,6 +1,6 @@
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap');
 
-/* ORPay is always light, whatever the OS theme. */
+/* Light by default; dark follows the phone setting or the Theme choice in the profile menu. */
 :root {
   color-scheme: light;
   --bg: #f4f6fb;
@@ -702,3 +702,66 @@ main.wallet { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 .dash-list .amt { font-weight: 700; font-size: .9rem; }
 .dev-settings { margin-top: 6px; }
 .dev-settings > summary { cursor: pointer; font-weight: 600; padding: 8px 0; }
+
+
+/* ---------- Dark theme ---------- */
+:root { --glass: rgb(255 255 255 / .9); --danger-bg: #fff1f2; --warn-bg: #fff7ed; }
+:root[data-theme="dark"] {
+  color-scheme: dark;
+  --bg: #0b1024;
+  --surface: #141a33;
+  --surface-2: #1b2242;
+  --text: #e7ebf7;
+  --muted: #94a0bd;
+  --border: #262e52;
+  --brand-1: #8b8cff;
+  --in: #34d399;
+  --in-bg: rgb(16 185 129 / .14);
+  --out-bg: rgb(129 140 248 / .16);
+  --danger: #fb7185;
+  --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 8px 24px -6px rgb(0 0 0 / .45);
+  --glass: rgb(20 26 51 / .88);
+  --danger-bg: rgb(251 113 133 / .14);
+  --warn-bg: rgb(251 146 60 / .14);
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+  color-scheme: dark;
+  --bg: #0b1024;
+  --surface: #141a33;
+  --surface-2: #1b2242;
+  --text: #e7ebf7;
+  --muted: #94a0bd;
+  --border: #262e52;
+  --brand-1: #8b8cff;
+  --in: #34d399;
+  --in-bg: rgb(16 185 129 / .14);
+  --out-bg: rgb(129 140 248 / .16);
+  --danger: #fb7185;
+  --shadow: 0 1px 2px rgb(0 0 0 / .3), 0 8px 24px -6px rgb(0 0 0 / .45);
+  --glass: rgb(20 26 51 / .88);
+  --danger-bg: rgb(251 113 133 / .14);
+  --warn-bg: rgb(251 146 60 / .14);
+  }
+}
+.tabbar, header#header + * .scan-btn { }
+.tabbar { background: var(--glass); }
+input:focus, select:focus, textarea:focus { background: var(--surface); }
+button.danger, .chip-s.bad, .menu-item.danger .mi-ico, .x-badge.bad { background: var(--danger-bg); }
+.chip-s.warn, .banner.warn { background: var(--warn-bg); }
+.pool-row:hover { background: var(--surface); }
+.steps .step.active .step-dot { background: var(--surface); }
+body:has(main.narrow) main.narrow { background: var(--surface); border-color: var(--border); }
+main.narrow { background: var(--surface); }
+.dispute-queue { background: var(--danger-bg); border-color: transparent; }
+/* QR codes and partner logos keep a white tile so they stay scannable/visible. */
+/* The public landing page keeps its light design. */
+:root:has(.lp) {
+  color-scheme: light;
+  --bg: #f4f6fb; --surface: #ffffff; --surface-2: #f5f7fc; --text: #0f172a; --muted: #64748b; --border: #e6eaf2;
+  --brand-1: #4f46e5; --in: #059669; --in-bg: #ecfdf5; --out-bg: #eef2ff; --danger: #e11d48;
+}
+.activity li.day { display: block; padding: 14px 0 4px; margin: 0; border: 0; font-size: .75rem; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+.activity li.day:first-child { padding-top: 0; }
+.activity li.day + li { border-top: 0; }
+.activity li.day:hover { background: none; }

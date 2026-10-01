@@ -156,3 +156,33 @@ func TestEscrowTimeouts(t *testing.T) {
 		t.Error("escrows leaked or created ORP")
 	}
 }
+
+func TestEscrowArbiterFee(t *testing.T) {
+	e, arb := newEscrowEnv(t)
+	buyer, seller := e.alice, e.bob
+	x := &types.EscrowOp{Op: types.EscrowCreate, Seller: seller.addr, Arbiter: arb.addr, Milestones: []types.Amount{50 * types.Unit},
+		ShipBy: e.now + 10_000, ReviewSecs: 3600, ArbiterBps: 200}
+	tx := &types.Tx{ChainID: e.g.ChainID, From: buyer.addr, Fee: minFee, Nonce: e.nonce[buyer.addr], Escrow: x}
+	tx.Sign(buyer.priv)
+	if _, err := e.c.Submit(tx); err != nil {
+		t.Fatal(err)
+	}
+	e.nonce[buyer.addr]++
+	e.produce(e.c)
+	id := tx.ID()
+	before := e.bal(buyer)
+	e.op(buyer, 0, &types.EscrowOp{Op: types.EscrowDispute, ID: id})
+	// 2% of 50 = 1 goes to the arbiter; 49 is left to split.
+	if err := e.op(arb, 0, &types.EscrowOp{Op: types.EscrowResolve, ID: id, ToSeller: 50 * types.Unit}); !errors.Is(err, ledger.ErrEscrow) {
+		t.Fatalf("split ignored the fee: %v", err)
+	}
+	if err := e.op(arb, 0, &types.EscrowOp{Op: types.EscrowResolve, ID: id, ToSeller: 24 * types.Unit}); err != nil {
+		t.Fatal(err)
+	}
+	if e.bal(arb) != 1*types.Unit || e.bal(seller) != 24*types.Unit || e.bal(buyer) != before+25*types.Unit {
+		t.Fatalf("arbiter %d seller %d buyer +%d", e.bal(arb), e.bal(seller), e.bal(buyer)-before)
+	}
+	if got := e.c.Escrow(id); got.ArbiterFee != 1*types.Unit || got.Balance != 0 {
+		t.Fatalf("escrow after: fee %d balance %d", got.ArbiterFee, got.Balance)
+	}
+}

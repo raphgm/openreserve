@@ -289,7 +289,8 @@ export async function renderEscrow(id, preloaded, focus) {
         <button type="button" class="ghost small" data-split="half">Split 50/50</button>
         <button type="button" class="ghost small" data-split="all">Full payment to seller</button>
       </div>
-      <label>Seller's share of ${money(e.balance)}<input id="split" inputmode="decimal" placeholder="0"></label>
+      ${e.arbiter_bps ? `<p class="muted small-text">Your fee of ${e.arbiter_bps / 100}% (${money((BigInt(e.balance) * BigInt(e.arbiter_bps)) / 10_000n)}) is paid to you first; split the rest.</p>` : ''}
+      <label>Seller's share of ${money(BigInt(e.balance) - (BigInt(e.balance) * BigInt(e.arbiter_bps ?? 0)) / 10_000n)}<input id="split" inputmode="decimal" placeholder="0"></label>
       <p class="hint" id="split-hint">The rest goes back to the buyer.</p>
       <button class="primary" data-op="resolve">Resolve dispute</button>`)
   }
@@ -354,7 +355,7 @@ export async function renderEscrow(id, preloaded, focus) {
   const split = ctx.$('#split')
   root.querySelectorAll('[data-split]').forEach((b) => {
     b.onclick = () => {
-      const bal = BigInt(e.balance)
+      const bal = BigInt(e.balance) - (BigInt(e.balance) * BigInt(e.arbiter_bps ?? 0)) / 10_000n
       const v = b.dataset.split === 'all' ? bal : b.dataset.split === 'half' ? bal / 2n : 0n
       split.value = (Number(v) / 1e6).toString()
       split.oninput()
@@ -475,7 +476,7 @@ export async function renderFundRequest(id) {
       ${r.checklist?.length ? `<div class="terms-box"><p class="label">You'll confirm these before the seller is paid</p><ul class="check-preview">${r.checklist.map((c) => `<li>${ctx.esc(c)}</li>`).join('')}</ul></div>` : ''}
       <dl class="summary">
         <dt>Paid to</dt><dd>${label(r.seller)} <span data-trust="${r.seller}"></span></dd>
-        <dt>Disputes settled by</dt><dd>${label(r.arbiter)}</dd>
+        <dt>Disputes settled by</dt><dd>${label(r.arbiter)}${r.arbiter_bps ? ` · fee ${r.arbiter_bps / 100}% only if there's a dispute` : ''}</dd>
         <dt>Delivery deadline</dt><dd>${r.ship_by_days} days after funding</dd>
         <dt>Your review period</dt><dd>${r.review_days} days after delivery</dd>
       </dl>
@@ -510,7 +511,7 @@ export async function renderFundRequest(id) {
       const txid = await escrowOp({
         seed: ctx.state.seed, op: 'create', seller: r.seller, arbiter: r.arbiter, asset: r.asset ?? '',
         milestones: r.milestones.map((m) => BigInt(m.amount)), ref: r.id,
-        memo: r.terms_memo ?? '',
+        memo: r.terms_memo ?? '', arbiterBps: r.arbiter_bps ?? 0,
         shipBy: Date.now() + r.ship_by_days * DAY, reviewSecs: r.review_days * 86_400,
       })
       await waitForCommit(txid)
@@ -736,7 +737,7 @@ async function renderArbiters() {
     <li class="arb">
       <span class="who"><strong>@${ctx.esc(a.username || a.address.slice(0, 6))} <span data-trust="${a.address}"></span></strong>
         <small>${ctx.esc(a.bio)}</small>
-        <small>${a.ratings ? `★ ${a.rating.toFixed(1)} from ${a.ratings} rating${a.ratings === 1 ? '' : 's'}` : 'No ratings yet'} · ${a.resolved} dispute${a.resolved === 1 ? '' : 's'} settled</small></span>
+        <small>${a.ratings ? `★ ${a.rating.toFixed(1)} from ${a.ratings} rating${a.ratings === 1 ? '' : 's'}` : 'No ratings yet'} · ${a.resolved} dispute${a.resolved === 1 ? '' : 's'} settled · ${a.fee_bps ? `${a.fee_bps / 100}% fee` : 'no fee'}</small></span>
       ${admin && a.status === 'pending' ? `<span class="row-actions"><button class="primary small" data-arb="${a.address}:approve">Approve</button><button class="danger small" data-arb="${a.address}:reject">Reject</button></span>` : ''}
     </li>`
   const pending = (all ?? []).filter((a) => a.status === 'pending')
@@ -752,6 +753,7 @@ async function renderArbiters() {
       <h2>Become an arbiter</h2>
       <p class="muted small-text">Good at settling disagreements fairly? Apply. ORPay reviews every applicant.</p>
       <form id="apply" class="stack"><textarea id="bio" rows="3" maxlength="600" placeholder="Your experience, e.g. 10 years as a market association chair resolving trade disputes."></textarea>
+      <label>Your fee, paid only when you settle a dispute<select id="fee"><option value="0">No fee</option><option value="100">1% of what's held</option><option value="200" selected>2%</option><option value="300">3%</option><option value="500">5% (maximum)</option></select></label>
       <p class="error" id="err"></p><button class="ghost">Apply</button></form>
     </section>`
   fillTrust(root)
@@ -759,7 +761,7 @@ async function renderArbiters() {
   ctx.$('#apply').onsubmit = async (e) => {
     e.preventDefault()
     try {
-      await api.applyArbiter(ctx.state.seed, ctx.$('#bio').value)
+      await api.applyArbiter(ctx.state.seed, ctx.$('#bio').value, Number(ctx.$('#fee').value))
       ctx.toast('Application sent for review')
       renderArbiters()
     } catch (err) {

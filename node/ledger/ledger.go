@@ -181,6 +181,8 @@ type Escrow struct {
 	Tracking     string         `json:"tracking,omitempty"`
 	PaidSeller   types.Amount   `json:"paid_seller"`
 	PaidBuyer    types.Amount   `json:"paid_buyer"`
+	ArbiterBps   uint32         `json:"arbiter_bps,omitempty"` // dispute fee agreed at creation
+	ArbiterFee   types.Amount   `json:"arbiter_fee,omitempty"` // what the arbiter was paid
 }
 
 // Open reports whether funds are still locked.
@@ -730,7 +732,7 @@ func (s *State) escrowOp(tx *types.Tx) (func(), error) {
 			s.Escrows[id] = &Escrow{
 				ID: id, Ref: op.Ref, Asset: tx.Asset, Buyer: tx.From, Seller: op.Seller, Arbiter: op.Arbiter,
 				Milestones: slices.Clone(op.Milestones), Balance: op.Total(), Status: EscrowFunded,
-				CreatedAt: s.Now, ShipBy: op.ShipBy, ReviewSecs: op.ReviewSecs,
+				CreatedAt: s.Now, ShipBy: op.ShipBy, ReviewSecs: op.ReviewSecs, ArbiterBps: op.ArbiterBps,
 			}
 		}, nil
 	}
@@ -804,12 +806,18 @@ func (s *State) escrowOp(tx *types.Tx) (func(), error) {
 		if e.Status != EscrowDisputed {
 			return fail("the arbiter can only act on a disputed escrow")
 		}
-		if op.ToSeller > remaining {
-			return fail("to_seller exceeds the escrow balance")
+		fee := types.Amount(uint64(remaining)/10_000*uint64(e.ArbiterBps)) + types.Amount(uint64(remaining)%10_000*uint64(e.ArbiterBps)/10_000)
+		if op.ToSeller > remaining-fee {
+			return fail("to_seller exceeds the escrow balance after the arbiter's fee")
 		}
 		return func() {
+			if fee > 0 {
+				s.credit(e.Arbiter, e.Asset, fee)
+				e.Balance -= fee
+				e.ArbiterFee = fee
+			}
 			pay(e.Seller, op.ToSeller)
-			pay(e.Buyer, remaining-op.ToSeller)
+			pay(e.Buyer, remaining-fee-op.ToSeller)
 			e.Status = EscrowResolved
 		}, nil
 
@@ -987,6 +995,11 @@ func (s *State) Root() types.Hash {
 		str(e.Tracking)
 		u64(e.PaidSeller)
 		u64(e.PaidBuyer)
+		if e.ArbiterBps != 0 { // hashed only when used: older roots unchanged
+			h.Write([]byte("arbiter-fee"))
+			u64(uint64(e.ArbiterBps))
+			u64(e.ArbiterFee)
+		}
 	}
 
 	for _, a := range slices.Sorted(maps.Keys(s.Guards)) {

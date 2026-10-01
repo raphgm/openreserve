@@ -160,6 +160,8 @@ type Escrow struct {
 	Tracking     string         `json:"tracking"`
 	PaidSeller   types.Amount   `json:"paid_seller"`
 	PaidBuyer    types.Amount   `json:"paid_buyer"`
+	ArbiterBps   uint32         `json:"arbiter_bps"`
+	ArbiterFee   types.Amount   `json:"arbiter_fee"`
 }
 
 func (c *Client) Escrow(id string) (*Escrow, error) {

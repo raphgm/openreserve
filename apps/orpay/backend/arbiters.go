@@ -22,6 +22,7 @@ type Arbiter struct {
 	Status    string         `json:"status"`            // pending, approved, rejected
 	Ratings   map[string]int `json:"ratings,omitempty"` // "escrowID/rater" -> 1..5
 	AppliedAt time.Time      `json:"applied_at"`
+	FeeBps    uint32         `json:"fee_bps"` // dispute fee, at most 5%
 }
 
 func (a *Arbiter) rating() (avg float64, n int) {
@@ -51,26 +52,31 @@ func (s *server) applyArbiter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var req struct {
-		Bio string `json:"bio"`
+		Bio    string `json:"bio"`
+		FeeBps uint32 `json:"fee_bps"`
 	}
 	if err := decodeBody(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
 	req.Bio = strings.TrimSpace(req.Bio)
+	if req.FeeBps > types.MaxArbiterBps {
+		writeErr(w, http.StatusBadRequest, errors.New("the dispute fee can be at most 5%"))
+		return
+	}
 	if len(req.Bio) < 20 || len(req.Bio) > 600 {
 		writeErr(w, http.StatusBadRequest, errors.New("tell buyers and sellers about your experience in 20-600 characters"))
 		return
 	}
 	s.arbiters.Update(func(m map[types.Address]*Arbiter) error {
 		if a, ok := m[me]; ok {
-			a.Bio = req.Bio
+			a.Bio, a.FeeBps = req.Bio, req.FeeBps
 			if a.Status == "rejected" {
 				a.Status = "pending"
 			}
 			return nil
 		}
-		m[me] = &Arbiter{Address: me, Bio: req.Bio, Status: "pending", AppliedAt: s.now()}
+		m[me] = &Arbiter{Address: me, Bio: req.Bio, FeeBps: req.FeeBps, Status: "pending", AppliedAt: s.now()}
 		return nil
 	})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "pending"})
@@ -139,7 +145,7 @@ func (s *server) writeArbiters(w http.ResponseWriter, isAdmin bool) {
 		}
 		name, _ := s.dir.byAddress(a.Address)
 		out = append(out, map[string]any{"address": a.Address, "username": name, "bio": a.Bio, "status": a.Status,
-			"rating": avg, "ratings": n, "resolved": resolved, "score": a.score()})
+			"rating": avg, "ratings": n, "resolved": resolved, "score": a.score(), "fee_bps": a.FeeBps})
 	}
 	slices.SortFunc(out, func(x, y map[string]any) int {
 		switch {
@@ -194,4 +200,16 @@ func (s *server) rateArbiter(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"rated": true})
+}
+
+// arbiterFee is the dispute fee an approved marketplace arbiter charges
+// (0 for app arbiters and ORPay admins).
+func (s *server) arbiterFee(a types.Address) uint32 {
+	var fee uint32
+	s.arbiters.Read(func(m map[types.Address]*Arbiter) {
+		if x, ok := m[a]; ok && x.Status == AppApproved {
+			fee = x.FeeBps
+		}
+	})
+	return fee
 }

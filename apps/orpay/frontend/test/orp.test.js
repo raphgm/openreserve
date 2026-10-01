@@ -29,6 +29,8 @@ const vectors = {
     '82ebaedcce1ec1bbfc48bf170294f7a95c02913657098321586997bc922aedf7'],
   circle: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 10, asset: 'NGN', pool: { op: 'create', name: 'Ajo', members: [FROM, TO], contribution: 10_000_000n, mode: 'bidding', insurance_bps: 200 } },
     '4b919d6ab55c3e973011255437113c3ef36fe73f165981467d9f499271c538e3'],
+  arbfee: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 12, escrow: { op: 'create', seller: TO, arbiter: '3'.repeat(64), milestones: [50_000_000n], ship_by: 1_800_000_000_000, review_secs: 86400, ref: '', arbiter_bps: 200 } },
+    '26a2309c6d83f42722de6aa38c00f29194d6163c98a37302840c7ca45ea117dc'],
   swap: [{ chain_id: 'c1', from: TO, to: '', amount: 0n, fee: 1000n, nonce: 11, pool: { op: 'swap', id: ID, other: FROM } },
     '4308b08809b83bb6fe7e97dbfefdb86ad635e17d852f8bd30d631bbcaa3092ee'],
   escrow: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 4, asset: 'NGN', escrow: {

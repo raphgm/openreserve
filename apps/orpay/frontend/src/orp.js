@@ -132,6 +132,11 @@ export function txSignBytes(tx) {
     e.u64(x.review_secs ?? 0)
     e.str(x.ref ?? '')
     e.u64(x.to_seller ?? 0)
+    if (x.arbiter_bps) {
+      // Arbiter fee, appended only when used.
+      e.parts.push(new Uint8Array([6]))
+      e.u64(x.arbiter_bps)
+    }
   }
   if (tx.guard) {
     const g = tx.guard
@@ -221,12 +226,13 @@ export const node = {
 
 // Sign and submit an escrow operation. For "create" the returned tx id is
 // also the new escrow's id. Steps after create carry no fee.
-export async function escrowOp({ seed, op, id, seller, arbiter, milestones, shipBy, reviewSecs, ref, toSeller, memo = '', asset = '' }) {
+export async function escrowOp({ seed, op, id, seller, arbiter, milestones, shipBy, reviewSecs, ref, toSeller, memo = '', asset = '', arbiterBps = 0 }) {
   const from = await addressOf(seed)
   const [st, acc] = await Promise.all([node.status(), node.account(from)])
   const escrow = { op }
   if (id) escrow.id = id
   if (op === 'create') Object.assign(escrow, { seller, arbiter, milestones: milestones.map(BigInt), ship_by: shipBy, review_secs: reviewSecs, ref: ref ?? '' })
+  if (op === 'create' && arbiterBps) escrow.arbiter_bps = arbiterBps
   if (op === 'resolve') escrow.to_seller = BigInt(toSeller ?? 0)
   const tx = await signTx(
     { chain_id: st.chain_id, from, to: '', amount: 0n, fee: op === 'create' ? feeFor(st, asset) : 0n, nonce: acc.next_nonce, memo, escrow, ...(asset ? { asset } : {}) },
@@ -351,7 +357,7 @@ export const api = {
   cancelEscrowLink: (seed, id) => signedCall(seed, 'POST', `/api/escrow-links/${id}/cancel`),
   arbiters: () => call('/api/arbiters'),
   allArbiters: (seed) => signedCall(seed, 'GET', '/api/arbiters/all'),
-  applyArbiter: (seed, bio) => signedCall(seed, 'POST', '/api/arbiters/apply', { bio }),
+  applyArbiter: (seed, bio, feeBps = 0) => signedCall(seed, 'POST', '/api/arbiters/apply', { bio, fee_bps: feeBps }),
   reviewArbiter: (seed, addr, decision) => signedCall(seed, 'POST', `/api/arbiters/${addr}/review`, { decision }),
   rateArbiter: (seed, id, stars) => signedCall(seed, 'POST', `/api/escrows/${id}/rate-arbiter`, { stars }),
   trust: (who) => call(`/api/trust/${encodeURIComponent(who)}`),

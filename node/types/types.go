@@ -199,7 +199,13 @@ type EscrowOp struct {
 	ReviewSecs int64    `json:"review_secs,omitempty"`
 	Ref        string   `json:"ref,omitempty"`       // merchant reference, e.g. "PN-8291-X"
 	ToSeller   Amount   `json:"to_seller,omitempty"` // resolve: seller's share of what remains
+	// ArbiterBps (create): the arbiter's fee if they have to resolve a
+	// dispute, in basis points of what is still held (max 5%).
+	ArbiterBps uint32 `json:"arbiter_bps,omitempty"`
 }
+
+// MaxArbiterBps caps the arbiter's dispute fee at 5%.
+const MaxArbiterBps = 500
 
 // Total is the escrowed amount.
 func (e *EscrowOp) Total() Amount {
@@ -351,6 +357,10 @@ func (tx *Tx) SignBytes() []byte {
 		e.u64(uint64(x.ReviewSecs))
 		e.str(x.Ref)
 		e.u64(x.ToSeller)
+		if x.ArbiterBps != 0 { // appended only when used: older encodings unchanged
+			e.raw([]byte{6})
+			e.u64(uint64(x.ArbiterBps))
+		}
 	}
 	if g := tx.Guard; g != nil { // appended only when present
 		e.raw([]byte{4})
@@ -553,6 +563,8 @@ func (tx *Tx) checkEscrowOp() error {
 			return fmt.Errorf("ref longer than %d bytes", MaxEscrowRef)
 		case x.ToSeller != 0:
 			return errors.New("create must not set to_seller")
+		case x.ArbiterBps > MaxArbiterBps:
+			return errors.New("arbiter fee can be at most 5%")
 		}
 		var total Amount
 		for _, m := range x.Milestones {
@@ -569,7 +581,7 @@ func (tx *Tx) checkEscrowOp() error {
 	if x.ID == (Hash{}) {
 		return errors.New("escrow id required")
 	}
-	if x.Seller != "" || x.Arbiter != "" || len(x.Milestones) != 0 || x.ShipBy != 0 || x.ReviewSecs != 0 || x.Ref != "" {
+	if x.Seller != "" || x.Arbiter != "" || len(x.Milestones) != 0 || x.ShipBy != 0 || x.ReviewSecs != 0 || x.Ref != "" || x.ArbiterBps != 0 {
 		return fmt.Errorf("%s takes only an escrow id", x.Op)
 	}
 	switch x.Op {

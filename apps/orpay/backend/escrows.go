@@ -50,10 +50,11 @@ type EscrowRequest struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	ExpiresAt   time.Time      `json:"expires_at"` // funding deadline
 	EscrowID    string         `json:"escrow_id,omitempty"`
-	Chain       *client.Escrow `json:"chain,omitempty"`     // last seen on-chain state
-	Events      []*hookEvent   `json:"events,omitempty"`    // webhook deliveries still owed
-	Kind        string         `json:"kind,omitempty"`      // goods, service, rent
-	Checklist   []string       `json:"checklist,omitempty"` // buyer confirms each before releasing
+	Chain       *client.Escrow `json:"chain,omitempty"`       // last seen on-chain state
+	Events      []*hookEvent   `json:"events,omitempty"`      // webhook deliveries still owed
+	Kind        string         `json:"kind,omitempty"`        // goods, service, rent
+	Checklist   []string       `json:"checklist,omitempty"`   // buyer confirms each before releasing
+	ArbiterBps  uint32         `json:"arbiter_bps,omitempty"` // arbiter's dispute fee
 }
 
 // hookEvent is a webhook waiting to be delivered.
@@ -202,7 +203,7 @@ func (s *server) newEscrowRequest(appID string, seller, arbiter types.Address, d
 		Milestones: ms, ShipByDays: req.ShipByDays, ReviewDays: req.ReviewDays, Description: req.Description,
 		Reference: req.Reference, ReturnURL: req.ReturnURL, Status: EscrowAwaiting, CreatedAt: now,
 		ExpiresAt: now.Add(time.Duration(req.FundWithinH) * time.Hour),
-		Kind:      req.Kind, Checklist: checklist,
+		Kind:      req.Kind, Checklist: checklist, ArbiterBps: s.arbiterFee(arbiter),
 	}
 	if err := s.escrows.Update(func(m map[string]*EscrowRequest) error { m[er.ID] = er; return nil }); err != nil {
 		return nil, err
@@ -221,7 +222,7 @@ func (s *server) escrowView(er *EscrowRequest, forApp bool) map[string]any {
 		"ship_by_days": er.ShipByDays, "review_days": er.ReviewDays, "description": er.Description,
 		"status": er.Status, "created_at": er.CreatedAt, "expires_at": er.ExpiresAt,
 		"funding_url": s.publicURL + "/?escrow_request=" + er.ID,
-		"kind":        er.Kind, "checklist": er.Checklist,
+		"kind":        er.Kind, "checklist": er.Checklist, "arbiter_bps": er.ArbiterBps,
 	}
 	if er.Policy != "" {
 		v["policy"], v["terms_hash"], v["terms_memo"] = er.Policy, er.TermsHash, "terms:"+er.TermsHash
@@ -390,7 +391,7 @@ func (s *server) findFunding(er *EscrowRequest) (*client.Escrow, error) {
 		want[i] = m.Amount
 	}
 	for _, e := range list {
-		if e.Ref == er.ID && e.Arbiter == er.Arbiter && e.Asset == er.Asset && slices.Equal(e.Milestones, want) {
+		if e.Ref == er.ID && e.Arbiter == er.Arbiter && e.Asset == er.Asset && e.ArbiterBps == er.ArbiterBps && slices.Equal(e.Milestones, want) {
 			// The buyer must have accepted these exact terms in the create tx.
 			if er.TermsHash != "" {
 				memo, err := s.node.EscrowCreateMemo(e.ID)

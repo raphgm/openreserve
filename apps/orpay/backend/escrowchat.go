@@ -109,12 +109,26 @@ type EvidenceRef struct {
 const (
 	maxMessageLen   = 2000
 	maxPhotoBytes   = 3 << 20
+	maxVideoBytes   = 25 << 20 // a short clip of the goods or work
 	maxPhotos       = 4
 	maxThreadLength = 500
 	fileURLTTL      = time.Hour
 )
 
 var photoTypes = map[string]bool{"image/jpeg": true, "image/png": true, "image/webp": true}
+var videoTypes = map[string]bool{"video/mp4": true, "video/webm": true}
+
+// mediaType recognises photos and short videos (iPhone .mov is MP4-family).
+func mediaType(b []byte) string {
+	ct := http.DetectContentType(b)
+	if photoTypes[ct] || videoTypes[ct] {
+		return ct
+	}
+	if len(b) > 12 && string(b[4:8]) == "ftyp" { // ISO media: mp4, m4v, mov
+		return "video/mp4"
+	}
+	return ""
+}
 
 // escrowRole returns the caller's role in an escrow, or an error.
 func (s *server) escrowRole(id string, who types.Address) (string, *client.Escrow, error) {
@@ -145,7 +159,7 @@ func (s *server) postEscrowMessage(w http.ResponseWriter, r *http.Request) {
 		Text   string   `json:"text"`
 		Photos []string `json:"photos"` // base64 JPEG/PNG/WebP
 	}
-	if err := decodeBodyN(r, &req, 16<<20); err != nil {
+	if err := decodeBodyN(r, &req, 40<<20); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
@@ -162,13 +176,20 @@ func (s *server) postEscrowMessage(w http.ResponseWriter, r *http.Request) {
 	}
 	for i, b64 := range req.Photos {
 		img, err := base64.StdEncoding.DecodeString(b64)
-		if err != nil || len(img) == 0 || len(img) > maxPhotoBytes {
-			writeErr(w, http.StatusBadRequest, fmt.Errorf("photo %d must be an image under 3 MB", i+1))
+		if err != nil || len(img) == 0 {
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("file %d could not be read", i+1))
 			return
 		}
-		ct := http.DetectContentType(img)
-		if !photoTypes[ct] {
-			writeErr(w, http.StatusBadRequest, fmt.Errorf("photo %d must be JPEG, PNG or WebP", i+1))
+		ct := mediaType(img)
+		switch {
+		case ct == "":
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("file %d must be a JPEG, PNG or WebP photo, or an MP4/WebM video", i+1))
+			return
+		case photoTypes[ct] && len(img) > maxPhotoBytes:
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("photo %d must be under 3 MB", i+1))
+			return
+		case videoTypes[ct] && len(img) > maxVideoBytes:
+			writeErr(w, http.StatusBadRequest, fmt.Errorf("video %d must be under 25 MB (about 30 seconds)", i+1))
 			return
 		}
 		sum := sha256.Sum256(img)
@@ -241,8 +262,8 @@ func (s *server) serveEvidence(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	ct := http.DetectContentType(img)
-	if !photoTypes[ct] {
+	ct := mediaType(img)
+	if ct == "" {
 		http.NotFound(w, r)
 		return
 	}

@@ -318,12 +318,12 @@ export async function renderEscrow(id, preloaded, focus) {
     <section class="card" id="terms-card" hidden></section>
     ${role !== 'viewer' ? `<section class="card chat-card">
       <h2>Conversation</h2>
-      <p class="muted small-text">Private to the buyer, seller and arbiter. Add photos of the goods on delivery or proof of dispatch; the arbiter uses them in disputes.</p>
+      <p class="muted small-text">Private to the buyer, seller and arbiter. Add photos or a short video of the goods on delivery, proof of dispatch or finished work; the arbiter uses them in disputes.</p>
       <ul class="chat" id="chat"><li class="empty">Loading…</li></ul>
       <form id="chat-form" class="chat-form" autocomplete="off">
         <textarea id="chat-text" rows="2" maxlength="2000" placeholder="Write a message"></textarea>
         <div class="row chat-actions">
-          <label class="ghost small file-btn">📷 Photos<input id="chat-photos" type="file" accept="image/*" multiple hidden></label>
+          <label class="ghost small file-btn">📷 Photo / video<input id="chat-photos" type="file" accept="image/*,video/mp4,video/webm,video/quicktime" multiple hidden></label>
           <span class="small-text muted" id="chat-files"></span>
           <button class="primary small" id="chat-send">Send</button>
         </div>
@@ -542,6 +542,18 @@ async function showTerms(history) {
     <p class="terms-text">${ctx.esc(t.text)}</p><p class="small-text muted mono">sha256 ${hash.slice(0, 16)}…</p>`
 }
 
+// Videos are sent as they are (up to 25 MB, about 30 seconds).
+async function encodeFile(file) {
+  if (file.type.startsWith('video/')) {
+    if (file.size > 25 * 1024 * 1024) throw new Error('Videos must be under 25 MB (about 30 seconds). Trim it and try again.')
+    const buf = new Uint8Array(await file.arrayBuffer())
+    let bin = ''
+    for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000))
+    return btoa(bin)
+  }
+  return shrink(file)
+}
+
 // Shrink photos before upload (phones take 5-10 MB pictures).
 async function shrink(file, max = 1600) {
   const bmp = await createImageBitmap(file)
@@ -575,7 +587,7 @@ function bindChat(id) {
           .map((m) => `<li class="msg ${m.from === ctx.state.address ? 'mine' : ''}">
             <span class="msg-meta">${label(m.from)} · ${m.role} · ${when(Date.parse(m.at))}</span>
             ${m.text ? `<p>${ctx.esc(m.text)}</p>` : ''}
-            ${(m.files ?? []).map((f) => `<a href="${ctx.esc(f.url)}" target="_blank" rel="noopener"><img class="evidence" src="${ctx.esc(f.url)}" alt="Photo evidence" loading="lazy"></a><span class="small-text muted mono">sha256 ${f.sha256.slice(0, 12)}…</span>`).join('')}
+            ${(m.files ?? []).map((f) => `${f.type?.startsWith('video/') ? `<video class="evidence" src="${ctx.esc(f.url)}" controls playsinline preload="metadata"></video>` : `<a href="${ctx.esc(f.url)}" target="_blank" rel="noopener"><img class="evidence" src="${ctx.esc(f.url)}" alt="Photo evidence" loading="lazy"></a>`}<span class="small-text muted mono">sha256 ${f.sha256.slice(0, 12)}…</span>`).join('')}
           </li>`)
           .join('')
       : '<li class="empty">No messages yet.</li>'
@@ -587,7 +599,7 @@ function bindChat(id) {
     if (document.activeElement?.id !== 'chat-text') load()
   }, 5000)
   const photos = ctx.$('#chat-photos')
-  photos.onchange = () => (ctx.$('#chat-files').textContent = photos.files.length ? `${photos.files.length} photo(s) attached` : '')
+  photos.onchange = () => (ctx.$('#chat-files').textContent = photos.files.length ? `${photos.files.length} file(s) attached` : '')
   ctx.$('#chat-form').onsubmit = async (e) => {
     e.preventDefault()
     const btn = ctx.$('#chat-send')
@@ -599,7 +611,7 @@ function bindChat(id) {
     btn.disabled = true
     btn.textContent = files.length ? 'Uploading…' : 'Sending…'
     try {
-      const encoded = await Promise.all(files.map((f) => shrink(f)))
+      const encoded = await Promise.all(files.map((f) => encodeFile(f)))
       await api.postEscrowMessage(ctx.state.seed, id, text, encoded)
       ctx.$('#chat-text').value = ''
       photos.value = ''

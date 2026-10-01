@@ -122,3 +122,21 @@ func TestEscrowChatAndEvidence(t *testing.T) {
 		t.Errorf("expired link: %d", resp.StatusCode)
 	}
 }
+
+func TestMediaType(t *testing.T) {
+	mp4 := append([]byte{0, 0, 0, 0x18}, []byte("ftypmp42\x00\x00\x00\x00mp42isom")...)
+	mov := append([]byte{0, 0, 0, 0x14}, []byte("ftypqt  \x00\x00\x02\x00qt  ")...)
+	for name, c := range map[string]struct {
+		b    []byte
+		want string
+	}{
+		"mp4":  {mp4, "video/mp4"},
+		"mov":  {mov, "video/mp4"},
+		"png":  {[]byte("\x89PNG\r\n\x1a\n0000000000"), "image/png"},
+		"html": {[]byte("<html><script>alert(1)</script>"), ""},
+	} {
+		if got := mediaType(c.b); got != c.want {
+			t.Errorf("%s: %q, want %q", name, got, c.want)
+		}
+	}
+}

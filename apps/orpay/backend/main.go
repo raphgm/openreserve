@@ -270,7 +270,7 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	// private buyer/seller/arbiter conversation with photo evidence.
 	mux.Handle("POST /api/escrow-terms", strict(30, 10, http.HandlerFunc(s.postTerms)))
 	mux.HandleFunc("GET /api/escrow-terms/{hash}", s.getTerms)
-	mux.Handle("POST /api/escrows/{id}/messages", strict(30, 10, reqauth.SignedN(16<<20, s.postEscrowMessage)))
+	mux.Handle("POST /api/escrows/{id}/messages", strict(30, 10, reqauth.SignedN(40<<20, s.postEscrowMessage)))
 	mux.HandleFunc("GET /api/escrows/{id}/messages", reqauth.Signed(s.listEscrowMessages))
 	mux.HandleFunc("GET /api/escrow-files/{id}", s.serveEvidence)
 

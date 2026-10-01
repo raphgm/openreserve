@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"crypto/ed25519"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -52,12 +53,18 @@ type HistoryEntry struct {
 	Tx     *types.Tx `json:"tx"`
 }
 
+// ErrNotFound means the node has no such object (e.g. after a chain reset).
+var ErrNotFound = errors.New("not found on this chain")
+
 func (c *Client) GetJSON(path string, out any) error {
 	resp, err := c.HTTP.Get(c.Base + path)
 	if err != nil {
 		return fmt.Errorf("node unreachable: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return fmt.Errorf("%w: %s", ErrNotFound, path)
+	}
 	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("node returned %s for %s", resp.Status, path)
 	}

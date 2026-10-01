@@ -25,6 +25,7 @@ const (
 	EscrowLinked   = "linked" // funded on-chain; see Chain for its live state
 	EscrowNoFund   = "expired"
 	EscrowCancel   = "cancelled" // withdrawn by the app before the buyer funded it
+	EscrowMissing  = "missing"   // its on-chain escrow no longer exists (chain reset)
 )
 
 type Milestone struct {
@@ -349,6 +350,16 @@ func (s *server) checkEscrows() error {
 			chain, err = s.findFunding(&er)
 		} else {
 			chain, err = s.node.Escrow(er.EscrowID)
+			if errors.Is(err, client.ErrNotFound) {
+				// The chain was reset or replaced: this escrow no longer exists.
+				s.escrows.Update(func(m map[string]*EscrowRequest) error {
+					if cur := m[er.ID]; cur != nil {
+						cur.Status = EscrowMissing
+					}
+					return nil
+				})
+				continue
+			}
 		}
 		if err != nil {
 			firstErr = err

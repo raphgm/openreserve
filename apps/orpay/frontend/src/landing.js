@@ -156,10 +156,21 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
     </section>
 
     <section class="lp-wrap">
-      <div class="lp-final">
-        <h2>Build payments with ORPay.</h2>
-        <p>Free to start. Live on the OpenReserve network.</p>
-        <button class="lp-btn white lg" data-start>Get started</button>
+      <div class="lp-final v2">
+        <div class="f-float f-left" aria-hidden="true"><span class="f-ico ok">${svg(I.check)}</span><span><b>Escrow released</b><small>iPhone 14 · ₦420,000</small></span></div>
+        <div class="f-float f-right" aria-hidden="true"><span class="f-ico in">${svg(I.down)}</span><span><b>Ajo payout</b><small>+₦60,000 · Round 4</small></span></div>
+        <span class="lp-pill dark"><span class="dot on"></span>Live on the OpenReserve network</span>
+        <h2>Money you can <span class="lp-grad light">see and trust.</span></h2>
+        <p>Start saving with your circle or selling with escrow in under a minute.</p>
+        <div class="f-cta">
+          <button class="lp-btn white lg" data-start>Create a free wallet</button>
+          <a class="lp-btn glass lg" href="#developers">For businesses →</a>
+        </div>
+        <ul class="f-stats">
+          <li><b>₦20</b><span>flat fee</span></li>
+          <li><b>0</b><span>keys we hold</span></li>
+          <li><b>100%</b><span>on-chain proof</span></li>
+        </ul>
       </div>
     </section>
 

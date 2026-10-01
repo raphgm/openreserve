@@ -3,6 +3,7 @@
 // timeouts so money is never stuck. Everything shown is read from the chain.
 import { api, assetLabel, escrowOp, formatMoney, node, parseAmount, partnerMark, waitForCommit } from './orp.js'
 import { fillTrust, showTrustCard } from './trust.js'
+import { renderSVG } from 'uqr'
 
 let ctx
 
@@ -27,6 +28,13 @@ const label = (a) => {
   return n ? `@${ctx.esc(n)}` : `<span class="mono">${ctx.short(a)}</span>`
 }
 const roleOf = (e) => (e.buyer === ctx.state.address ? 'buyer' : e.seller === ctx.state.address ? 'seller' : e.arbiter === ctx.state.address ? 'arbiter' : 'viewer')
+// Delivery note with a tracking link for couriers that have a public tracker.
+function trackingLine(t) {
+  const [courier, ref] = t.includes(' · ') ? t.split(' · ') : ['', t]
+  const url = ref && { 'GIG Logistics': `https://giglogistics.com/track?waybill=${encodeURIComponent(ref)}`, DHL: `https://www.dhl.com/ng-en/home/tracking.html?tracking-id=${encodeURIComponent(ref)}` }[courier]
+  return `${courier ? `${ctx.esc(courier)}: ` : 'Delivery: '}${url ? `<a href="${url}" target="_blank" rel="noopener">${ctx.esc(ref)} ↗</a>` : ctx.esc(ref || t)}`
+}
+
 const total = (e) => e.milestones.reduce((s, m) => s + BigInt(m), 0n)
 const when = (ms) => new Date(ms).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 
@@ -37,8 +45,17 @@ export async function renderEscrows() {
       <div class="section-head"><h2>Escrow</h2><button class="primary small" id="new">New escrow</button></div>
       <p class="muted small-text">Lock payment until the work or goods are delivered. The seller is paid in milestones as you approve, and an independent arbiter settles disputes.</p>
       <ul class="pool-list" id="list"><li class="empty">Loading…</li></ul>
+    </section>
+    <section class="card sell-card">
+      <div class="section-head"><h2>Selling online?</h2></div>
+      <p class="muted small-text">Selling on Instagram, WhatsApp, TikTok or Jiji? Create an escrow link and share it. Buyers pay safely, you get paid when they confirm, and nobody has to trust a stranger.</p>
+      <div class="row"><button class="primary" id="sell">Create an escrow link</button><button class="ghost" id="arbs">Arbiters</button></div>
+      <ul class="pool-list" id="links"></ul>
     </section>`
   ctx.$('#new').onclick = renderCreate
+  ctx.$('#sell').onclick = renderSellLink
+  ctx.$('#arbs').onclick = renderArbiters
+  loadMyLinks()
   let list
   try {
     list = await node.escrows(ctx.state.address)
@@ -219,7 +236,7 @@ export async function renderEscrow(id, preloaded, focus) {
     stage('done', 'Escrow funded', `${label(e.buyer)} secured ${money(total(e))} in escrow`, when(e.created_at)),
     stage(shipped ? 'done' : open ? 'active' : 'locked', shipped ? 'Shipped' : 'Awaiting shipment',
       shipped ? `${label(e.seller)} marked it dispatched` : `${label(e.seller)} ships or delivers by ${when(e.ship_by)}`,
-      e.tracking ? `Tracking: ${ctx.esc(e.tracking)}` : ''),
+      e.tracking ? trackingLine(e.tracking) : ''),
     stage(e.released === e.milestones.length || e.status === 'completed' ? 'done' : open && e.status !== 'disputed' ? 'active' : 'locked',
       'Inspected and approved', `${e.released} of ${e.milestones.length} milestones released`,
       shipped && e.status === 'dispatched' ? `Auto-release to seller after ${when(reviewEnds)} if no dispute` : ''),
@@ -233,19 +250,33 @@ export async function renderEscrow(id, preloaded, focus) {
 
   // What this person can do right now.
   const acts = []
+  const checklist = req?.checklist ?? []
+  const ckKey = `orpay.check.${e.id}`
+  let ticked = []
+  try {
+    ticked = JSON.parse(localStorage.getItem(ckKey)) ?? []
+  } catch {}
+  const allTicked = checklist.every((_, i) => ticked.includes(i))
   if (role === 'buyer' && (e.status === 'funded' || e.status === 'dispatched')) {
-    acts.push(`<button class="primary" data-op="release">Release “${msLabel(e.released)}” · ${money(e.milestones[e.released])}</button>`)
+    if (checklist.length)
+      acts.push(`<div class="checklist"><p class="label">Check before you release</p>${checklist.map((c, i) => `<label class="check"><input type="checkbox" data-ck="${i}" ${ticked.includes(i) ? 'checked' : ''}> ${ctx.esc(c)}</label>`).join('')}</div>`)
+    acts.push(`<button class="primary" data-op="release" ${allTicked ? '' : 'disabled data-locked="1"'}>Release “${msLabel(e.released)}” · ${money(e.milestones[e.released])}</button>`)
+    if (!allTicked) acts.push('<p class="muted small-text">Tick every item above once you have checked it. Scanning the seller\'s pickup QR also opens this screen.</p>')
     acts.push('<button class="danger" data-op="dispute">Open a dispute</button>')
     if (e.status === 'funded' && now > e.ship_by) acts.push('<button class="ghost" data-op="refund">Reclaim my funds (not shipped in time)</button>')
   }
   if (role === 'seller' && e.status === 'funded') {
-    acts.push('<label>Tracking number or delivery note<input id="note" maxlength="140" placeholder="e.g. GIG Logistics #GL12345 or link to delivered work"></label>')
+    acts.push(`<div class="row"><label>Courier<select id="courier"><option value="">Delivering myself / pickup</option><option>GIG Logistics</option><option>Kwik</option><option>DHL</option><option>Bolt Send</option><option>Other courier</option></select></label></div>`)
+    acts.push('<label>Tracking number or delivery note<input id="note" maxlength="120" placeholder="e.g. GL12345, or link to delivered work"></label>')
     acts.push('<button class="primary" data-op="dispatch">Mark dispatched / delivered</button>')
   }
   if (role === 'seller' && e.status === 'dispatched') {
     acts.push(now >= reviewEnds
       ? `<button class="primary" data-op="claim">Claim remaining ${money(e.balance)}</button>`
       : `<p class="muted small-text">The buyer is reviewing. If they neither release nor dispute by ${when(reviewEnds)}, you can claim the rest.</p>`)
+  }
+  if (role === 'seller' && open && e.status !== 'disputed') {
+    acts.push('<button class="ghost" id="pickup">Show pickup QR</button><div id="pickup-qr" hidden><div class="qr-wrap"><div class="qr" id="pqr"></div><p class="muted small-text">At handover, the buyer scans this with ORPay, checks the item and releases payment on the spot.</p></div></div>')
   }
   if (role === 'seller' && open) {
     if (e.status !== 'disputed') acts.push('<button class="danger" data-op="dispute">Open a dispute</button>')
@@ -263,6 +294,8 @@ export async function renderEscrow(id, preloaded, focus) {
       <button class="primary" data-op="resolve">Resolve dispute</button>`)
   }
   if (e.status === 'disputed' && role !== 'arbiter') acts.push(`<p class="banner warn">This escrow is frozen. ${label(e.arbiter)} will decide how the ${money(e.balance)} is split.</p>`)
+  if (e.status === 'resolved' && (role === 'buyer' || role === 'seller'))
+    acts.push(`<div class="rate"><p class="label">Rate how ${label(e.arbiter)} handled this dispute</p><div class="stars">${[1, 2, 3, 4, 5].map((n) => `<button class="ghost small" data-star="${n}">${'★'.repeat(n)}</button>`).join('')}</div></div>`)
   if (!acts.length) acts.push(`<p class="muted small-text">${done ? 'This escrow is closed.' : 'Nothing for you to do right now.'}</p>`)
 
   root.innerHTML = `
@@ -344,6 +377,30 @@ export async function renderEscrow(id, preloaded, focus) {
     target.scrollIntoView({ behavior: 'smooth', block: 'center' })
     target.classList.add('pulse')
   }
+  root.querySelectorAll('[data-ck]').forEach((cb) => (cb.onchange = () => {
+    const i = Number(cb.dataset.ck)
+    ticked = cb.checked ? [...new Set([...ticked, i])] : ticked.filter((x) => x !== i)
+    try {
+      localStorage.setItem(ckKey, JSON.stringify(ticked))
+    } catch {}
+    const rel = root.querySelector('[data-op="release"]')
+    if (rel) rel.disabled = !checklist.every((_, k) => ticked.includes(k))
+  }))
+  if (ctx.$('#pickup'))
+    ctx.$('#pickup').onclick = () => {
+      const box = ctx.$('#pickup-qr')
+      box.hidden = !box.hidden
+      if (!box.hidden) ctx.$('#pqr').innerHTML = renderSVG(`${location.origin}/?escrow=${e.id}&action=release`, { border: 1 })
+    }
+  root.querySelectorAll('[data-star]').forEach((b) => (b.onclick = async () => {
+    try {
+      await api.rateArbiter(ctx.state.seed, e.id, Number(b.dataset.star))
+      ctx.toast('Thanks for rating the arbiter')
+      b.closest('.rate').remove()
+    } catch (err) {
+      ctx.toast(err.message, 'err')
+    }
+  }))
   root.querySelectorAll('[data-op]').forEach((b) => {
     b.onclick = async () => {
       const op = b.dataset.op
@@ -359,9 +416,11 @@ export async function renderEscrow(id, preloaded, focus) {
       b.textContent = 'Confirming…'
       try {
         const args = { seed: ctx.state.seed, op, id: e.id, asset: e.asset ?? '' }
-        if (op === 'dispatch') args.memo = ctx.$('#note')?.value.trim() ?? ''
+        if (op === 'dispatch') args.memo = [ctx.$('#courier')?.value, ctx.$('#note')?.value.trim()].filter(Boolean).join(' · ').slice(0, 140)
         if (op === 'resolve') args.toSeller = parseAmount(ctx.$('#split').value || '0')
         await waitForCommit(await escrowOp(args))
+        if (op === 'release' && checklist.length)
+          api.postEscrowMessage(ctx.state.seed, e.id, `Buyer checked before releasing: ${checklist.join('; ')}`).catch(() => {})
         ctx.toast({ release: 'Milestone released', dispatch: 'Marked as dispatched', dispute: 'Dispute opened', resolve: 'Dispute resolved', refund: 'Buyer refunded', claim: 'Funds claimed' }[op])
         ctx.refresh()
         renderEscrow(e.id)
@@ -400,7 +459,8 @@ export async function renderFundRequest(id) {
   if (r.escrow_id) return renderEscrow(r.escrow_id)
   await ctx.resolveNames([r.seller, r.arbiter])
   const money = (x) => formatMoney(x, r.asset ?? '')
-  const app = r.app ?? { name: 'A partner app', status: 'unknown' }
+  const personal = !r.app_id
+  const app = r.app ?? { name: personal ? label(r.seller) : 'A partner app', status: personal ? 'personal' : 'unknown' }
   if (app.status === 'approved') ctx.cobrand(app)
   const expired = r.status === 'expired' || r.status === 'cancelled' || new Date(r.expires_at) < new Date()
   root.innerHTML = `
@@ -408,10 +468,11 @@ export async function renderFundRequest(id) {
       <p class="label">Fund escrow</p>
       <div class="merchant">
         ${app.status === 'approved' ? partnerMark(app, 'pool-avatar partner-bg') : '<span class="pool-avatar escrow-avatar">⛨</span>'}
-        <span class="who"><strong>${ctx.esc(app.brand_name || app.name)} ${app.status === 'approved' ? '<span class="chip-s ok">Verified</span>' : '<span class="chip-s warn">Not verified</span>'}</strong>
+        <span class="who"><strong>${personal ? `${label(r.seller)} <span data-trust="${r.seller}"></span>` : `${ctx.esc(app.brand_name || app.name)} ${app.status === 'approved' ? '<span class="chip-s ok">Verified</span>' : '<span class="chip-s warn">Not verified</span>'}`}</strong>
         <small>${ctx.esc(r.description || 'Payment held in escrow until milestones are approved')}</small></span>
       </div>
       <p class="amount">${money(r.total)}</p>
+      ${r.checklist?.length ? `<div class="terms-box"><p class="label">You'll confirm these before the seller is paid</p><ul class="check-preview">${r.checklist.map((c) => `<li>${ctx.esc(c)}</li>`).join('')}</ul></div>` : ''}
       <dl class="summary">
         <dt>Paid to</dt><dd>${label(r.seller)} <span data-trust="${r.seller}"></span></dd>
         <dt>Disputes settled by</dt><dd>${label(r.arbiter)}</dd>
@@ -548,4 +609,166 @@ function bindChat(id) {
     btn.disabled = false
     btn.textContent = 'Send'
   }
+}
+
+
+// ---------- Escrow links (social sellers) ----------
+
+const KINDS = {
+  phone: { kind: 'goods', title: 'Phone or gadget', checklist: ['IMEI / serial matches the listing', 'Battery health as described', 'Screen, cameras and buttons work', 'No iCloud / Google lock'], terms: 'Inspect the item on delivery or pickup. Returns are not accepted once you release payment.' },
+  car: { kind: 'goods', title: 'Car', checklist: ['VIN matches the papers', 'Inspection report received', 'Test drive done', 'Original papers handed over'], terms: 'Inspect the car and papers before releasing payment. No returns after release.' },
+  goods: { kind: 'goods', title: 'Other item', checklist: ['Item matches the photos and description', 'Item is not damaged'], terms: 'Inspect the item on delivery. Returns are not accepted once you release payment.' },
+  service: { kind: 'service', title: 'Service or work', checklist: ['Work delivered as agreed', 'Matches the brief'], terms: 'Payment is released when the work is delivered as agreed.' },
+  rent: { kind: 'rent', title: 'Rent or caution fee', checklist: ['Keys received', 'Property condition matches the photos', 'Water and power working'], terms: 'Rent is released to the landlord or agent once the tenant confirms move-in.' },
+}
+
+function renderSellLink() {
+  const root = ctx.root()
+  const curs = ctx.currencies()
+  root.innerHTML = `
+    <section class="card">
+      <button class="link back" id="back">← Escrow</button>
+      <h2>Create an escrow link</h2>
+      ${ctx.state.username ? '' : '<p class="banner warn">Claim a @username first so buyers can see who they are paying.</p>'}
+      <form id="f" class="stack" autocomplete="off">
+        <div class="mode-pick" role="radiogroup" aria-label="What are you selling">
+          ${Object.entries(KINDS).map(([k, v]) => `<button type="button" role="radio" data-kind="${k}"><b>${v.title}</b></button>`).join('')}
+        </div>
+        <label>What are you selling?<input id="desc" maxlength="280" placeholder="iPhone 14 Pro, 256GB, blue" required></label>
+        <label>Price ${curs[0] === 'NGN' ? '(₦)' : '(ORP)'}<input id="price" inputmode="decimal" placeholder="420,000" required></label>
+        <div class="row">
+          <label>Deliver within<select id="ship"><option value="1">1 day</option><option value="3" selected>3 days</option><option value="7">7 days</option><option value="14">14 days</option></select></label>
+          <label>Buyer checks within<select id="review"><option value="1" selected>1 day</option><option value="2">2 days</option><option value="3">3 days</option></select></label>
+        </div>
+        <label>Buyer checklist <span class="muted">(one per line; the buyer ticks each before paying you)</span><textarea id="checklist" rows="4"></textarea></label>
+        <label>Your terms<textarea id="terms" rows="3"></textarea></label>
+        <p class="error" id="err"></p>
+        <button class="primary" id="go">Create link</button>
+      </form>
+    </section>`
+  ctx.$('#back').onclick = renderEscrows
+  const pick = (k) => {
+    root.querySelectorAll('[data-kind]').forEach((b) => b.setAttribute('aria-checked', b.dataset.kind === k))
+    ctx.$('#checklist').value = KINDS[k].checklist.join('\n')
+    ctx.$('#terms').value = KINDS[k].terms
+    ctx.$('#f').dataset.kind = KINDS[k].kind
+    if (k === 'rent') ctx.$('#ship').value = '7'
+  }
+  root.querySelectorAll('[data-kind]').forEach((b) => (b.onclick = () => pick(b.dataset.kind)))
+  pick('phone')
+  ctx.$('#f').onsubmit = async (e) => {
+    e.preventDefault()
+    const btn = ctx.$('#go')
+    ctx.$('#err').textContent = ''
+    try {
+      const amount = ctx.$('#price').value.replace(/[,₦\s]/g, '')
+      parseAmount(amount)
+      btn.disabled = true
+      btn.textContent = 'Creating…'
+      const r = await api.createEscrowLink(ctx.state.seed, {
+        description: ctx.$('#desc').value.trim(), currency: curs[0] || 'ORP', kind: ctx.$('#f').dataset.kind,
+        milestones: [{ label: ctx.$('#desc').value.trim().slice(0, 80) || 'Item', amount }],
+        ship_by_days: Number(ctx.$('#ship').value), review_days: Number(ctx.$('#review').value), fund_within_hours: 72,
+        checklist: ctx.$('#checklist').value.split('\n'), policy: ctx.$('#terms').value.trim(),
+      })
+      showShare(r)
+    } catch (err) {
+      ctx.$('#err').textContent = err.message
+      btn.disabled = false
+      btn.textContent = 'Create link'
+    }
+  }
+}
+
+function showShare(r) {
+  const root = ctx.root()
+  const url = r.funding_url
+  const text = `Pay safely with ORPay escrow: ${r.description} · ${formatMoney(r.total, r.asset ?? '')}. Your money is held until you check the item. ${url}`
+  root.innerHTML = `
+    <section class="card">
+      <button class="link back" id="back">← Escrow</button>
+      <h2>Your escrow link is ready</h2>
+      <p class="muted small-text">Send it to your buyer. They read your terms and lock the money; you deliver; they check and release. The link works for 3 days.</p>
+      <div class="qr-wrap"><div class="qr" id="qr" role="img" aria-label="Escrow link QR code"></div><p class="mono small-text">${ctx.esc(url)}</p></div>
+      <div class="row">
+        <a class="button primary" href="https://wa.me/?text=${encodeURIComponent(text)}" target="_blank" rel="noopener">Share on WhatsApp</a>
+        <button class="ghost" id="copy">Copy link</button>
+      </div>
+      ${navigator.share ? '<button class="ghost" id="share">Share to Instagram, TikTok…</button>' : ''}
+    </section>`
+  ctx.$('#qr').innerHTML = renderSVG(url, { border: 1 })
+  ctx.$('#back').onclick = renderEscrows
+  ctx.$('#copy').onclick = () => navigator.clipboard.writeText(url).then(() => ctx.toast('Link copied'))
+  if (ctx.$('#share')) ctx.$('#share').onclick = () => navigator.share({ title: 'ORPay escrow', text, url }).catch(() => {})
+}
+
+async function loadMyLinks() {
+  let links = []
+  try {
+    links = await api.escrowLinks(ctx.state.seed)
+  } catch {
+    return
+  }
+  const ul = ctx.$('#links')
+  if (!ul || !links.length) return
+  ul.innerHTML = `<li class="label">Your links</li>` + links.map((r) => {
+    const st = r.escrow?.status ?? r.status
+    const chip = { awaiting_funding: '<span class="chip-s warn">Waiting for buyer</span>', expired: '<span class="chip-s">Expired</span>', cancelled: '<span class="chip-s">Cancelled</span>' }[st] ?? statusChip(st)
+    return `<li><button class="pool-row" data-link="${r.id}"><span class="who"><strong>${ctx.esc(r.description || r.id)}</strong><small>${formatMoney(r.total, r.asset ?? '')}</small></span>${chip}</button></li>`
+  }).join('')
+  ul.querySelectorAll('[data-link]').forEach((b) => (b.onclick = () => {
+    const r = links.find((x) => x.id === b.dataset.link)
+    r.escrow_id ? renderEscrow(r.escrow_id) : showShare(r)
+  }))
+}
+
+// ---------- Arbiter marketplace ----------
+
+async function renderArbiters() {
+  const root = ctx.root()
+  root.innerHTML = '<section class="card"><p class="muted">Loading arbiters…</p></section>'
+  let list = [], all = null
+  try {
+    list = await api.arbiters()
+    all = await api.allArbiters(ctx.state.seed).catch(() => null) // admins only
+  } catch {}
+  const row = (a, admin) => `
+    <li class="arb">
+      <span class="who"><strong>@${ctx.esc(a.username || a.address.slice(0, 6))} <span data-trust="${a.address}"></span></strong>
+        <small>${ctx.esc(a.bio)}</small>
+        <small>${a.ratings ? `★ ${a.rating.toFixed(1)} from ${a.ratings} rating${a.ratings === 1 ? '' : 's'}` : 'No ratings yet'} · ${a.resolved} dispute${a.resolved === 1 ? '' : 's'} settled</small></span>
+      ${admin && a.status === 'pending' ? `<span class="row-actions"><button class="primary small" data-arb="${a.address}:approve">Approve</button><button class="danger small" data-arb="${a.address}:reject">Reject</button></span>` : ''}
+    </li>`
+  const pending = (all ?? []).filter((a) => a.status === 'pending')
+  root.innerHTML = `
+    <section class="card">
+      <button class="link back" id="back">← Escrow</button>
+      <h2>Trusted arbiters</h2>
+      <p class="muted small-text">Arbiters settle escrow disputes. They are vetted by ORPay and rated by buyers and sellers after every decision. New escrow links use the best-rated arbiter.</p>
+      <ul class="members arb-list">${list.length ? list.map((a) => row(a, false)).join('') : '<li class="empty">No marketplace arbiters yet. ORPay settles disputes until they join.</li>'}</ul>
+    </section>
+    ${pending.length ? `<section class="card"><h2>Applications <span class="chip-s info">Admin</span></h2><ul class="members arb-list">${pending.map((a) => row(a, true)).join('')}</ul></section>` : ''}
+    <section class="card">
+      <h2>Become an arbiter</h2>
+      <p class="muted small-text">Good at settling disagreements fairly? Apply. ORPay reviews every applicant.</p>
+      <form id="apply" class="stack"><textarea id="bio" rows="3" maxlength="600" placeholder="Your experience, e.g. 10 years as a market association chair resolving trade disputes."></textarea>
+      <p class="error" id="err"></p><button class="ghost">Apply</button></form>
+    </section>`
+  fillTrust(root)
+  ctx.$('#back').onclick = renderEscrows
+  ctx.$('#apply').onsubmit = async (e) => {
+    e.preventDefault()
+    try {
+      await api.applyArbiter(ctx.state.seed, ctx.$('#bio').value)
+      ctx.toast('Application sent for review')
+      renderArbiters()
+    } catch (err) {
+      ctx.$('#err').textContent = err.message
+    }
+  }
+  root.querySelectorAll('[data-arb]').forEach((b) => (b.onclick = async () => {
+    const [addr, d] = b.dataset.arb.split(':')
+    await api.reviewArbiter(ctx.state.seed, addr, d).catch((err) => ctx.toast(err.message, 'err'))
+    renderArbiters()
+  }))
 }

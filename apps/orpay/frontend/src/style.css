@@ -800,3 +800,9 @@ main.narrow { background: var(--surface); }
 .trust-note { margin: 0; font-size: .72rem; color: var(--muted); }
 .to-trust { margin-top: -6px; }
 .pool-stats .trust-chip { margin-top: 4px; align-self: flex-start; } .members .who strong .trust-chip { margin-left: 4px; vertical-align: middle; }
+.checklist { display: flex; flex-direction: column; gap: 8px; padding: 12px; border-radius: 14px; background: var(--surface-2); }
+.check-preview { margin: 4px 0 0; padding-left: 18px; font-size: .85rem; display: flex; flex-direction: column; gap: 2px; }
+.stars { display: flex; gap: 6px; flex-wrap: wrap; }
+.stars button { width: auto; color: #eab308; }
+.arb-list .who small { display: block; }
+.sell-card .row a.button { text-decoration: none; }

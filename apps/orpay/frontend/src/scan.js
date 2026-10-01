@@ -11,6 +11,10 @@ export function parseScan(text) {
   if (/^@?[a-z0-9_]{3,20}$/i.test(t)) return { to: t.replace(/^@/, '').toLowerCase() }
   try {
     const u = new URL(t)
+    const esc = u.searchParams.get('escrow')
+    if (esc && /^[0-9a-f]{64}$/.test(esc)) return { escrow: esc, action: u.searchParams.get('action') ?? '' }
+    const req = u.searchParams.get('escrow_request')
+    if (req) return { escrow_request: req }
     return readPayLink(u.search)
   } catch {
     return null

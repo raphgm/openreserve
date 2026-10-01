@@ -488,6 +488,8 @@ function showPanel(title) {
 // Scan a QR to pay: opens the Send form filled in from the code.
 function scanToPay() {
   openScanner((req) => {
+    if (req.escrow) return showView('escrow', () => renderEscrow(req.escrow, undefined, req.action))
+    if (req.escrow_request) return showView('escrow', () => renderFundRequest(req.escrow_request))
     if (state.view !== 'home') showView('home')
     showPanel('Send money')
     renderSend(req)

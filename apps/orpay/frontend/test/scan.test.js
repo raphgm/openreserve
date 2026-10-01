@@ -13,6 +13,12 @@ test('reads ORPay QR codes and pay links', () => {
   assert.deepEqual(parseScan('https://pay.example/?to=ada&amount=500&memo=rent'), { to: 'ada', amount: '500', memo: 'rent' })
 })
 
+test('reads escrow pickup and funding codes', () => {
+  const id = 'cd'.repeat(32)
+  assert.deepEqual(parseScan(`https://pay.example/?escrow=${id}&action=release`), { escrow: id, action: 'release' })
+  assert.deepEqual(parseScan('https://pay.example/?escrow_request=esr_abc'), { escrow_request: 'esr_abc' })
+})
+
 test('ignores QR codes that are not payments', () => {
   assert.equal(parseScan('https://example.com/menu'), null)
   assert.equal(parseScan('hello world'), null)

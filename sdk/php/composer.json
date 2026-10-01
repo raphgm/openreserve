@@ -1,0 +1,8 @@
+{
+  "name": "openreservepolicy/orpay",
+  "description": "ORPay server SDK: checkouts, milestone escrow and webhook verification for apps on OpenReserve",
+  "type": "library",
+  "license": "Apache-2.0",
+  "require": { "php": ">=7.4", "ext-curl": "*", "ext-json": "*" },
+  "autoload": { "psr-4": { "OpenReserve\\": "src/" } }
+}

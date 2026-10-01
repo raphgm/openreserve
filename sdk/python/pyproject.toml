@@ -1,0 +1,15 @@
+[project]
+name = "orpay"
+version = "0.2.0"
+description = "ORPay server SDK: checkouts, milestone escrow and webhook verification for apps on OpenReserve"
+readme = "README.md"
+requires-python = ">=3.9"
+license = { text = "Apache-2.0" }
+dependencies = []
+
+[project.urls]
+Source = "https://github.com/raphgm/openreserve/tree/main/sdk/python"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"

@@ -14,3 +14,5 @@ deploy/genesis.json
 deploy/.monitor-state
 testnet/
 apps/orpay/backend/backend
+# ORPay server state (usernames, partner apps); survives devnet resets
+orpay-data/

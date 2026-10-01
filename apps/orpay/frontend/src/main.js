@@ -1,6 +1,6 @@
 import './style.css'
 import {
-  addressOf, api, assetLabel, partnerMark, feeFor, formatAmount, formatMoney, fromHex, gateway, isAddress, newSeed, node, parseAmount,
+  addressOf, api, assetLabel, toHex, partnerMark, feeFor, formatAmount, formatMoney, fromHex, gateway, isAddress, newSeed, node, parseAmount,
   payLink, readPayLink, registerMessage, seedToWords, send, signMessage, waitForCommit, wordsToSeed,
 } from './orp.js'
 import { renderSVG } from 'uqr'
@@ -197,9 +197,46 @@ function renderUnlock() {
 
 // ---------- wallet ----------
 
+// Stay unlocked across reloads in this tab until it is closed or idle for
+// 15 minutes. The key lives in sessionStorage, which the browser drops when
+// the tab closes and never shares with other tabs or sites.
+const SESSION = 'orpay.session'
+const IDLE_MS = 15 * 60 * 1000
+function saveSession(seed, address) {
+  try {
+    sessionStorage.setItem(SESSION, JSON.stringify({ seed: toHex(seed), address, at: Date.now() }))
+  } catch {}
+}
+function lock() {
+  try {
+    sessionStorage.removeItem(SESSION)
+  } catch {}
+  location.href = '/'
+}
+function resumeSession() {
+  try {
+    const s = JSON.parse(sessionStorage.getItem(SESSION))
+    if (s && Date.now() - s.at < IDLE_MS && s.address === vaultAddress()) return s
+    sessionStorage.removeItem(SESSION)
+  } catch {}
+  return null
+}
+function watchIdle() {
+  const touch = () => {
+    try {
+      const s = JSON.parse(sessionStorage.getItem(SESSION))
+      if (s) sessionStorage.setItem(SESSION, JSON.stringify({ ...s, at: Date.now() }))
+    } catch {}
+  }
+  ;['pointerdown', 'keydown', 'scroll'].forEach((e) => addEventListener(e, debounce(touch, 1000), { passive: true }))
+  setInterval(() => !resumeSession() && lock(), 30_000)
+}
+
 async function openWallet(seed, address) {
   state.seed = seed
   state.address = address
+  saveSession(seed, address)
+  watchIdle()
   renderWallet()
   api.config().then((c) => ((state.config = c), renderBalance())).catch(() => {})
   gateway
@@ -684,7 +721,7 @@ function renderReceive() {
   $('#reveal').onclick = (e) => {
     if (confirm('Show your recovery words? Make sure nobody can see your screen.')) e.target.outerHTML = wordGrid(state.seed)
   }
-  $('#lock').onclick = () => location.reload()
+  $('#lock').onclick = lock
   const nb = $('#notify')
   if (!('Notification' in window) || !('serviceWorker' in navigator)) nb.remove()
   else {
@@ -906,8 +943,16 @@ async function renderGuestCheckout(invoice) {
   } catch {}
   const wantsLanding = new URLSearchParams(location.search).has('home')
   if (pending?.invoice) renderGuestCheckout(pending)
-  else if (hasVault() && !wantsLanding) renderUnlock()
+  else if (hasVault() && !wantsLanding) {
+    const s = resumeSession()
+    s ? openWallet(fromHex(s.seed), s.address) : renderUnlock()
+  }
   else showLanding()
+}
+
+function openSaved() {
+  const s = resumeSession()
+  s ? openWallet(fromHex(s.seed), s.address) : renderUnlock()
 }
 
 // The public landing page. People who already have a wallet on this device
@@ -915,8 +960,8 @@ async function renderGuestCheckout(invoice) {
 function showLanding() {
   const has = hasVault()
   renderLanding(app, {
-    onStart: has ? () => (state.seed ? renderWallet() : renderUnlock()) : async () => showBackup(await newSeed()),
-    onSignIn: has ? () => (state.seed ? renderWallet() : renderUnlock()) : renderImport,
+    onStart: has ? openSaved : async () => showBackup(await newSeed()),
+    onSignIn: has ? openSaved : renderImport,
     signInLabel: has ? 'Open wallet' : 'Sign in',
   })
   window.scrollTo(0, 0)

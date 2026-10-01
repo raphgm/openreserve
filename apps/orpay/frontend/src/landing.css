@@ -342,3 +342,14 @@ body:has(.lp) { background: #f7f7fc; }
 .lp-trio article > i, .lp-trio article > h3, .lp-trio article > p { margin-left: 22px; margin-right: 22px; }
 .lp-track, .lp-flow-card { padding: 20px 22px; border-radius: 20px; }
 .lp-code { padding: 22px; border-radius: 18px; }
+
+/* Shorter closing banner */
+.lp-final.v2 { padding: 44px 28px 32px; margin: 56px 0; }
+.lp-pill.dark { margin-bottom: 14px; }
+.lp-final.v2 h2 { font-size: clamp(1.9rem, 3.8vw, 2.8rem); }
+.lp-final.v2 > p { margin: 10px auto 22px; font-size: 1rem; }
+.f-stats { margin-top: 26px; padding-top: 18px; }
+.f-stats b { font-size: 1.3rem; }
+.f-float { padding: 9px 12px 9px 9px; border-radius: 13px; }
+.f-left { top: 18px; left: 18px; } .f-right { bottom: 18px; right: 18px; }
+.lp-final.v2 > p { max-width: 38rem; }

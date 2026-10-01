@@ -101,6 +101,7 @@ async function home() {
   const blocks = st.height ? (await call(`/v1/blocks?from=${from}&limit=15`)).reverse() : []
   const txs = blocks.flatMap((b) => b.txs.map((tx) => ({ tx, height: b.header.height, time: b.header.time }))).slice(0, 12)
   const assets = st.assets ?? []
+  const stats = await call('/v1/stats').catch(() => null)
   hero = `
     <div class="x-hero">
       <span class="x-live"><span class="dot on"></span>${esc(st.chain_id)} · ${st.height ? `block ${st.height.toLocaleString()}` : 'waiting for first block'}</span>
@@ -114,6 +115,7 @@ async function home() {
       ${assets.map((a) => stat('naira', `${esc(a.name || a.symbol)} issued`, formatMoney(a.supply, a.symbol), `issuer ${short(a.issuer)}`)).join('')}
       ${stat('accounts', 'Accounts', st.accounts.toLocaleString(), `${st.mempool_size} pending transaction${st.mempool_size === 1 ? '' : 's'}`)}
     </section>
+    ${stats ? transparency(stats) : ''}
     <div class="x-cols">
       <section class="card"><h2>Latest blocks</h2><ul class="x-list">${blocks
         .map((b) => `<li><span class="x-badge">#${b.header.height}</span><span class="who"><strong>${link('block', b.header.height, `Block ${b.header.height}`)}</strong><small>${b.txs.length} tx · ${ago(b.header.time)}</small></span></li>`)
@@ -248,3 +250,29 @@ async function route() {
 
 window.addEventListener('hashchange', route)
 route()
+
+// Public transparency: the network's track record, computed live from the
+// ledger. Nobody (including ORPay) can edit these numbers.
+function transparency(st) {
+  const sum = (m) => {
+    const parts = Object.entries(m ?? {}).filter(([, v]) => v > 0).map(([a, v]) => formatMoney(v, a))
+    return parts.length ? parts.join(' + ') : formatMoney(0, 'NGN')
+  }
+  const e = st.escrows, c = st.circles
+  const closed = e.completed + e.refunded + e.resolved
+  const disputeRate = e.total ? Math.round((e.disputed / e.total) * 1000) / 10 : 0
+  const onTime = c.payments + c.missed_payments ? Math.round((c.payments / (c.payments + c.missed_payments)) * 1000) / 10 : 100
+  const tile = (label, value, note) => `<div class="card t-tile"><span class="label">${label}</span><strong>${value}</strong><small>${note}</small></div>`
+  return `
+    <section class="x-trust">
+      <div class="x-trust-head"><h2>Trust, in numbers</h2><p class="muted small-text">Live from the OpenReserve ledger. Anyone can check them; nobody can edit them.</p></div>
+      <div class="x-stats">
+        ${tile('Held in escrow now', sum(e.held), `${e.open} open escrow${e.open === 1 ? '' : 's'}`)}
+        ${tile('Released to sellers', sum(e.to_sellers), `${e.completed} completed · ${sum(e.to_buyers)} returned to buyers`)}
+        ${tile('Dispute rate', `${disputeRate}%`, `${e.disputed} of ${e.total} escrows · ${e.resolved} settled by arbiters`)}
+        ${tile('Ajo pots paid out', sum(c.paid_out), `${c.payouts} payout${c.payouts === 1 ? '' : 's'} · ${c.active} circle${c.active === 1 ? '' : 's'} running`)}
+        ${tile('On-time ajo payments', `${onTime}%`, `${c.payments} paid · ${c.missed_payments} missed`)}
+        ${tile('Saving in circles now', sum(c.saving_now), `${c.members} member seats · ${c.completed} circle${c.completed === 1 ? '' : 's'} completed`)}
+      </div>
+    </section>`
+}

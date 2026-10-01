@@ -829,3 +829,13 @@ main.wallet { gap: 12px; }
 video.evidence { width: 100%; max-height: 320px; border-radius: 12px; background: #000; }
 .deliv { font-weight: 700; } .deliv.delivered { color: var(--in); } .deliv.failed { color: var(--danger); }
 textarea { font-family: inherit; }
+.x-trust { display: flex; flex-direction: column; gap: 10px; }
+.x-trust-head h2 { margin: 6px 0 2px; font-size: 1.15rem; }
+.x-trust-head p { margin: 0; }
+.t-tile strong { font-size: 1.25rem; }
+.radar { border-radius: 12px; padding: 10px 12px; font-size: .85rem; background: var(--warn-bg); color: #9a3412; display: flex; flex-direction: column; gap: 4px; margin-top: 6px; }
+.radar.high { background: var(--danger-bg); color: var(--danger); }
+.radar ul { margin: 0; padding-left: 18px; }
+.radar p { margin: 0; color: var(--text); }
+.radar-inline { margin: 6px 0 0; padding: 6px 8px; border-radius: 8px; background: var(--danger-bg); color: var(--danger); font-size: .78rem; font-weight: 600; }
+.x-trust .x-stats { grid-template-columns: repeat(3, 1fr); } @media (max-width: 720px) { .x-trust .x-stats { grid-template-columns: 1fr 1fr; } }

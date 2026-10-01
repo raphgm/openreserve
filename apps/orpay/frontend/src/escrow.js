@@ -2,7 +2,8 @@
 // in milestones by the buyer, with an independent arbiter for disputes and
 // timeouts so money is never stuck. Everything shown is read from the chain.
 import { api, assetLabel, escrowOp, formatMoney, node, parseAmount, partnerMark, waitForCommit } from './orp.js'
-import { fillTrust, showTrustCard } from './trust.js'
+import { fillTrust, showTrustCard, trustOf } from './trust.js'
+import { asksToPayOutside, radarBanner, riskOf } from './radar.js'
 import { renderSVG } from 'uqr'
 
 let ctx
@@ -482,6 +483,7 @@ export async function renderFundRequest(id) {
         <dt>Your review period</dt><dd>${r.review_days} day${r.review_days === 1 ? '' : 's'} after delivery</dd>
       </dl>
       <ul class="milestones">${r.milestones.map((m) => `<li><span>${ctx.esc(m.label)}</span><strong>${money(m.amount)}</strong><span class="pending">Held</span></li>`).join('')}</ul>
+      <div id="seller-radar"></div>
       <div id="seller-trust"></div>
       <p class="small-text muted">Your money is locked on-chain, not held by ${ctx.esc(app.brand_name || app.name)}. Inspect the goods when they arrive and release payment when you're satisfied. If they're not as described, open a dispute and the arbiter decides.</p>
       ${r.policy ? `<div class="terms-box"><p class="label">Seller's terms</p><p class="terms-text">${ctx.esc(r.policy)}</p></div>
@@ -491,6 +493,7 @@ export async function renderFundRequest(id) {
     </section>`
   fillTrust(root)
   showTrustCard(ctx.$('#seller-trust'), r.seller, { title: "Seller's trust profile" })
+  trustOf(r.seller).then((t) => ctx.$('#seller-radar') && (ctx.$('#seller-radar').innerHTML = radarBanner(riskOf(t), "Your money stays locked in escrow until you've checked the item, so you're protected. Still, never pay this seller outside ORPay.")))
   const btn = ctx.$('#fund')
   if (!btn) return
   if (!ctx.state.seed) btn.textContent = 'Open ORPay wallet to fund'
@@ -587,6 +590,7 @@ function bindChat(id) {
           .map((m) => `<li class="msg ${m.from === ctx.state.address ? 'mine' : ''}">
             <span class="msg-meta">${label(m.from)} · ${m.role} · ${when(Date.parse(m.at))}</span>
             ${m.text ? `<p>${ctx.esc(m.text)}</p>` : ''}
+            ${m.text && m.from !== ctx.state.address && asksToPayOutside(m.text) ? '<p class="radar-inline">⚠ This looks like a request to pay outside escrow. Never do that: money sent directly can\'t be protected or recovered.</p>' : ''}
             ${(m.files ?? []).map((f) => `${f.type?.startsWith('video/') ? `<video class="evidence" src="${ctx.esc(f.url)}" controls playsinline preload="metadata"></video>` : `<a href="${ctx.esc(f.url)}" target="_blank" rel="noopener"><img class="evidence" src="${ctx.esc(f.url)}" alt="Photo evidence" loading="lazy"></a>`}<span class="small-text muted mono">sha256 ${f.sha256.slice(0, 12)}…</span>`).join('')}
           </li>`)
           .join('')

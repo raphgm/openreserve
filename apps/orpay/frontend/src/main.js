@@ -12,6 +12,7 @@ import { initEscrow, renderEscrow, renderEscrows, renderFundRequest } from './es
 import { renderLanding } from './landing.js'
 import { openScanner } from './scan.js'
 import { fillTrust, showTrustCard, trustChip, trustOf } from './trust.js'
+import { radarBanner, riskOf } from './radar.js'
 import { bioEnabled, bioSupported, disableBio, enableBio, unlockBio } from './bio.js'
 import { newSignInWords, parseSignInWords, sealSignIn, signInToken, unsealSignIn } from './signin.js'
 import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './vault.js'
@@ -815,7 +816,7 @@ function renderSend(prefill = {}) {
     try {
       resolved = await resolveRecipient(v)
       if (!hint.isConnected) return
-      trustOf(resolved).then((t) => $('#to-trust') && ($('#to-trust').innerHTML = t ? trustChip(t) : ''))
+      trustOf(resolved).then((t) => $('#to-trust') && ($('#to-trust').innerHTML = t ? trustChip(t) + radarBanner(riskOf(t), 'Paying for goods or work? <b>Use escrow</b> so your money is only released after you check it. Only send directly to people you know.') : ''))
       hint.textContent = v.startsWith('@') || !isAddress(v) ? `→ ${short(resolved)}` : state.names.get(v) ? `@${state.names.get(v)}` : ''
     } catch (err) {
       if (hint.isConnected) hint.textContent = err.message

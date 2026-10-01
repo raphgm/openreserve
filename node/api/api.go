@@ -19,6 +19,7 @@ func Handler(c *chain.Chain) http.Handler {
 	s := &server{c: c}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/status", s.status)
+	mux.HandleFunc("GET /v1/stats", func(w http.ResponseWriter, _ *http.Request) { writeJSON(w, http.StatusOK, s.c.Stats()) })
 	mux.HandleFunc("GET /v1/genesis", s.genesis)
 	mux.HandleFunc("GET /v1/accounts/{addr}", s.account)
 	mux.HandleFunc("GET /v1/accounts/{addr}/txs", s.history)

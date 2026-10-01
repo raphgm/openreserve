@@ -224,3 +224,16 @@ func TestCircleCancel(t *testing.T) {
 	}
 	checkSupply(t, c)
 }
+
+func TestStats(t *testing.T) {
+	_, c, ms, send := circleEnv(t)
+	id := startCircle(t, c, ms, send, &types.PoolOp{Contribution: 10 * types.Unit})
+	for _, m := range ms {
+		send(m, &types.PoolOp{Op: types.PoolContribute, ID: id})
+	}
+	send(ms[0], &types.PoolOp{Op: types.PoolClaim, ID: id})
+	st := c.Stats()
+	if st.Circles.Total != 1 || st.Circles.Payouts != 1 || st.Circles.PaidOut[""] != 30*types.Unit || st.Circles.OnTime != 3 {
+		t.Fatalf("circle stats: %+v", st.Circles)
+	}
+}

@@ -72,6 +72,16 @@ type Pool struct {
 	PaidOut   []types.Amount `json:"paid_out,omitempty"`   // what each member received
 	// Autopay: money each member set aside for future rounds (nil if none).
 	Prepaid []types.Amount `json:"prepaid,omitempty"`
+	// Circle options and state (see circle.go); all empty for a plain pool.
+	Mode         string          `json:"mode,omitempty"`
+	InsuranceBps uint32          `json:"insurance_bps,omitempty"`
+	Insurance    types.Amount    `json:"insurance,omitempty"` // pot cuts held to cover defaults
+	Target       types.Amount    `json:"target,omitempty"`    // goal circles
+	PaidAmt      []types.Amount  `json:"paid_amt,omitempty"`  // instalments paid this round
+	Bids         []types.Amount  `json:"bids,omitempty"`      // bidding circles: discount offered
+	Saved        []types.Amount  `json:"saved,omitempty"`     // goal circles: each member's savings
+	Withdrawn    []bool          `json:"withdrawn,omitempty"` // goal circles
+	SwapWith     []types.Address `json:"swap_with,omitempty"` // pending payout-turn swap requests
 }
 
 // rounds left that member i still has to pay for, including the current one.
@@ -90,10 +100,10 @@ func (p *Pool) autopay() {
 		return
 	}
 	for j := range p.Members {
-		if !p.Paid[j] && p.Prepaid[j] >= p.Contribution {
-			p.Prepaid[j] -= p.Contribution
-			p.Paid[j] = true
-			p.Balance += p.Contribution
+		need := p.Contribution - p.paidSoFar(j)
+		if !p.Paid[j] && p.Prepaid[j] >= need {
+			p.Prepaid[j] -= need
+			p.payIn(j, need)
 		}
 	}
 }
@@ -114,7 +124,7 @@ func (p *Pool) Held() types.Amount {
 	for _, a := range p.Prepaid {
 		t += a
 	}
-	return t
+	return t + p.Insurance
 }
 
 // Pot is what the round's recipient receives.
@@ -132,6 +142,11 @@ func (p *Pool) clone() *Pool {
 	c.Defaults = slices.Clone(p.Defaults)
 	c.PaidOut = slices.Clone(p.PaidOut)
 	c.Prepaid = slices.Clone(p.Prepaid)
+	c.PaidAmt = slices.Clone(p.PaidAmt)
+	c.Bids = slices.Clone(p.Bids)
+	c.Saved = slices.Clone(p.Saved)
+	c.Withdrawn = slices.Clone(p.Withdrawn)
+	c.SwapWith = slices.Clone(p.SwapWith)
 	return &c
 }
 
@@ -330,7 +345,13 @@ func (s *State) Cost(tx *types.Tx) types.Amount {
 	case tx.Escrow != nil && tx.Escrow.Op == types.EscrowCreate:
 		return tx.Escrow.Total() + tx.Fee
 	case tx.Pool != nil && tx.Pool.Op == types.PoolContribute:
+		if tx.Pool.Contribution > 0 {
+			return tx.Pool.Contribution + tx.Fee
+		}
 		if p := s.Pools[tx.Pool.ID]; p != nil {
+			if i := p.index(tx.From); i >= 0 {
+				return p.Contribution - p.paidSoFar(i) + tx.Fee
+			}
 			return p.Contribution + tx.Fee
 		}
 	case tx.Pool != nil && tx.Pool.Op == types.PoolCreate:
@@ -465,9 +486,16 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 				Contribution: op.Contribution, Joined: make([]bool, n), Status: PoolForming,
 				Paid: make([]bool, n), Claimed: make([]bool, n),
 				RoundSecs: op.RoundSecs, Deposit: op.Deposit,
+				Mode: op.Mode, InsuranceBps: op.InsuranceBps, Target: op.Target,
 			}
-			if p.Scheduled() {
+			if p.Scheduled() && p.Mode != types.PoolGoal {
 				p.Deposits, p.Defaults, p.PaidOut = make([]types.Amount, n), make([]int, n), make([]types.Amount, n)
+			}
+			switch p.Mode {
+			case types.PoolBidding:
+				p.Bids = make([]types.Amount, n)
+			case types.PoolGoal:
+				p.Saved, p.Withdrawn = make([]types.Amount, n), make([]bool, n)
 			}
 			i := p.index(tx.From)
 			p.Joined[i] = true
@@ -489,6 +517,7 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 	if tx.Asset != p.Asset {
 		return nil, fmt.Errorf("%w: this pool uses %s", ErrPool, types.AssetName(p.Asset))
 	}
+	goal := p.Mode == types.PoolGoal
 
 	switch op.Op {
 	case types.PoolJoin:
@@ -503,6 +532,9 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 			if !slices.Contains(p.Joined, false) {
 				p.Status = PoolActive
 				p.StartedAt = s.Now
+				if p.Mode == types.PoolLottery {
+					p.drawOrder()
+				}
 				p.autopay()
 			}
 		}, nil
@@ -511,20 +543,43 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 		if p.Status != PoolActive {
 			return nil, fmt.Errorf("%w: pool is %s", ErrPool, p.Status)
 		}
+		if goal {
+			if op.Contribution == 0 {
+				return nil, fmt.Errorf("%w: enter how much to save", ErrPool)
+			}
+			if p.Balance+op.Contribution < p.Balance {
+				return nil, ErrOverflow
+			}
+			return func() {
+				p.Saved[i] += op.Contribution
+				p.Balance += op.Contribution
+				if p.Balance >= p.Target {
+					p.Status = PoolDone // goal reached: everyone can take their savings
+				}
+			}, nil
+		}
 		if p.Paid[i] {
 			return nil, fmt.Errorf("%w: already contributed this round", ErrPool)
 		}
-		return func() {
-			p.Paid[i] = true
-			p.Balance += p.Contribution
-		}, nil
+		rem := p.Contribution - p.paidSoFar(i)
+		amt := op.Contribution
+		if amt == 0 {
+			amt = rem
+		}
+		if amt > rem {
+			return nil, fmt.Errorf("%w: only %s left to pay this round", ErrPool, types.FormatAmount(rem))
+		}
+		return func() { p.payIn(i, amt) }, nil
 
 	case types.PoolClaim:
+		if goal {
+			return nil, fmt.Errorf("%w: goal circles have no payouts; use withdraw", ErrPool)
+		}
 		if p.Status != PoolActive {
 			return nil, fmt.Errorf("%w: pool is %s", ErrPool, p.Status)
 		}
-		if i != p.Round {
-			return nil, fmt.Errorf("%w: it is %s's turn", ErrPool, p.Members[p.Round])
+		if who := p.Recipient(); i != who {
+			return nil, fmt.Errorf("%w: it is %s's turn", ErrPool, p.Members[who])
 		}
 		allPaid := !slices.Contains(p.Paid, false)
 		if !allPaid && !(p.Scheduled() && s.Now >= p.DueAt(p.Round)) {
@@ -536,51 +591,75 @@ func (s *State) poolOp(tx *types.Tx) (func(), error) {
 		if b := s.Balance(tx.From, p.Asset); b+p.Pot() < b {
 			return nil, ErrOverflow
 		}
+		return func() { p.payout(s, i) }, nil
+
+	case types.PoolBid:
+		if p.Mode != types.PoolBidding {
+			return nil, fmt.Errorf("%w: only bidding circles take bids", ErrPool)
+		}
+		if p.Status != PoolActive || p.Claimed[i] {
+			return nil, fmt.Errorf("%w: you have already collected", ErrPool)
+		}
+		if op.Contribution > p.Pot()/2 {
+			return nil, fmt.Errorf("%w: the discount can be at most half the pot (%s)", ErrPool, types.FormatAmount(p.Pot()/2))
+		}
+		return func() { p.Bids[i] = op.Contribution }, nil
+
+	case types.PoolSwap:
+		if goal || p.Mode == types.PoolBidding {
+			return nil, fmt.Errorf("%w: this circle has no fixed turns to swap", ErrPool)
+		}
+		j := p.index(op.Other)
+		switch {
+		case p.Status == PoolDone:
+			return nil, fmt.Errorf("%w: pool is finished", ErrPool)
+		case j < 0 || j == i:
+			return nil, fmt.Errorf("%w: swap partner must be another member", ErrPool)
+		case p.Claimed[i] || p.Claimed[j]:
+			return nil, fmt.Errorf("%w: only members who have not collected can swap", ErrPool)
+		case p.Status == PoolActive && (i == p.Round || j == p.Round):
+			return nil, fmt.Errorf("%w: this round's turn cannot be swapped", ErrPool)
+		}
 		return func() {
-			// Past the due date: record each missed payment and cover it from
-			// the member's deposit when there is enough left.
-			for j, paid := range p.Paid {
-				if paid {
-					continue
-				}
-				p.Defaults[j]++
-				if p.Deposits[j] >= p.Contribution {
-					p.Deposits[j] -= p.Contribution
-					p.Balance += p.Contribution
-				}
+			if p.SwapWith == nil {
+				p.SwapWith = make([]types.Address, len(p.Members))
 			}
-			pot := p.Balance
-			s.credit(tx.From, p.Asset, pot)
-			p.Balance = 0
-			if p.PaidOut != nil {
-				p.PaidOut[i] = pot
+			if p.SwapWith[j] == tx.From { // both have asked: trade turns
+				p.swapIdx(i, j)
+				clear(p.SwapWith)
+				return
 			}
-			p.Claimed[i] = true
-			p.Round++
-			clear(p.Paid)
-			if p.Round < len(p.Members) {
-				p.autopay()
-			}
-			if p.Round == len(p.Members) {
+			p.SwapWith[i] = op.Other
+		}, nil
+
+	case types.PoolWithdraw:
+		if !goal {
+			return nil, fmt.Errorf("%w: only goal circles allow withdrawals", ErrPool)
+		}
+		deadline := p.Scheduled() && p.StartedAt > 0 && s.Now >= p.StartedAt+p.RoundSecs*1000
+		if p.Status != PoolDone && !deadline {
+			return nil, fmt.Errorf("%w: savings unlock when the goal is reached%s", ErrPool, map[bool]string{true: " or the deadline passes"}[p.Scheduled()])
+		}
+		if p.Saved[i] == 0 {
+			return nil, fmt.Errorf("%w: nothing to withdraw", ErrPool)
+		}
+		if b := s.Balance(tx.From, p.Asset); b+p.Saved[i] < b {
+			return nil, ErrOverflow
+		}
+		return func() {
+			s.credit(tx.From, p.Asset, p.Saved[i])
+			p.Balance -= p.Saved[i]
+			p.Saved[i] = 0
+			p.Withdrawn[i] = true
+			if p.Status != PoolDone && !slices.Contains(p.Withdrawn, false) {
 				p.Status = PoolDone
-				// Return anything still set aside for autopay.
-				for j, a := range p.Prepaid {
-					if a > 0 {
-						s.credit(p.Members[j], p.Asset, a)
-						p.Prepaid[j] = 0
-					}
-				}
-				// Return whatever deposit each member still has.
-				for j, d := range p.Deposits {
-					if d > 0 {
-						s.credit(p.Members[j], p.Asset, d)
-						p.Deposits[j] = 0
-					}
-				}
 			}
 		}, nil
 
 	case types.PoolAutopay:
+		if goal {
+			return nil, fmt.Errorf("%w: goal circles have no rounds", ErrPool)
+		}
 		if p.Status == PoolDone {
 			return nil, fmt.Errorf("%w: pool is finished", ErrPool)
 		}
@@ -839,6 +918,24 @@ func (s *State) Root() types.Hash {
 			h.Write([]byte("autopay"))
 			for _, a := range p.Prepaid {
 				u64(a)
+			}
+		}
+		if p.hasCircleState() { // hashed only once circle features are used
+			h.Write([]byte("circle"))
+			str(p.Mode)
+			u64(uint64(p.InsuranceBps))
+			u64(p.Insurance)
+			u64(p.Target)
+			for _, xs := range [][]types.Amount{p.PaidAmt, p.Bids, p.Saved} {
+				u64(uint64(len(xs)))
+				for _, x := range xs {
+					u64(x)
+				}
+			}
+			bools(p.Withdrawn)
+			u64(uint64(len(p.SwapWith)))
+			for _, a := range p.SwapWith {
+				str(string(a))
 			}
 		}
 	}

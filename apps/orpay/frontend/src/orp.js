@@ -107,6 +107,14 @@ export function txSignBytes(tx) {
       e.u64(p.round_secs ?? 0)
       e.u64(p.deposit ?? 0)
     }
+    if (p.mode || p.insurance_bps || p.target || p.other) {
+      // Circle options, appended only when used.
+      e.parts.push(new Uint8Array([5]))
+      e.str(p.mode ?? '')
+      e.u64(p.insurance_bps ?? 0)
+      e.u64(p.target ?? 0)
+      e.str(p.other ?? '')
+    }
   } else {
     e.parts.push(new Uint8Array([0]))
   }
@@ -203,6 +211,7 @@ export const node = {
       body.pool = { ...tx.pool }
       if (body.pool.contribution != null) body.pool.contribution = Number(body.pool.contribution)
       if (body.pool.deposit != null) body.pool.deposit = Number(body.pool.deposit)
+      if (body.pool.target != null) body.pool.target = Number(body.pool.target)
       for (const k of Object.keys(body.pool)) if (body.pool[k] == null || body.pool[k] === '') delete body.pool[k]
       if (!body.to) delete body.to
     }
@@ -244,7 +253,7 @@ export async function guardOp({ seed, op, guardians, threshold, delaySecs, accou
 
 // Sign and submit a savings-pool operation. For "create" the returned tx id
 // is also the new pool's id.
-export async function poolOp({ seed, op, id, name, members, contribution, roundSecs = 0, deposit = 0n, asset = '' }) {
+export async function poolOp({ seed, op, id, name, members, contribution, roundSecs = 0, deposit = 0n, asset = '', mode = '', insuranceBps = 0, target = 0n, other = '' }) {
   const from = await addressOf(seed)
   const [st, acc] = await Promise.all([node.status(), node.account(from)])
   const pool = { op }
@@ -254,7 +263,13 @@ export async function poolOp({ seed, op, id, name, members, contribution, roundS
     if (roundSecs) pool.round_secs = roundSecs
     if (deposit) pool.deposit = BigInt(deposit)
   }
-  if (op === 'autopay') pool.contribution = BigInt(contribution)
+  if (op === 'autopay' || op === 'bid' || (op === 'contribute' && contribution)) pool.contribution = BigInt(contribution)
+  if (op === 'create') {
+    if (mode) pool.mode = mode
+    if (insuranceBps) pool.insurance_bps = insuranceBps
+    if (target) pool.target = BigInt(target)
+  }
+  if (op === 'swap') pool.other = other
   const tx = await signTx(
     { chain_id: st.chain_id, from, to: '', amount: 0n, fee: feeFor(st, asset), nonce: acc.next_nonce, memo: '', pool, ...(asset ? { asset } : {}) },
     seed,

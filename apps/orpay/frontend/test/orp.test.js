@@ -27,6 +27,10 @@ const vectors = {
     '800da8309049e5e3491b6b2301fd3e768b33316ba7911fa899e1cf6208683e84'],
   pooljoin: [{ chain_id: 'c1', from: TO, to: '', amount: 0n, fee: 1000n, nonce: 0, pool: { op: 'join', id: ID } },
     '82ebaedcce1ec1bbfc48bf170294f7a95c02913657098321586997bc922aedf7'],
+  circle: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 10, asset: 'NGN', pool: { op: 'create', name: 'Ajo', members: [FROM, TO], contribution: 10_000_000n, mode: 'bidding', insurance_bps: 200 } },
+    '4b919d6ab55c3e973011255437113c3ef36fe73f165981467d9f499271c538e3'],
+  swap: [{ chain_id: 'c1', from: TO, to: '', amount: 0n, fee: 1000n, nonce: 11, pool: { op: 'swap', id: ID, other: FROM } },
+    '4308b08809b83bb6fe7e97dbfefdb86ad635e17d852f8bd30d631bbcaa3092ee'],
   escrow: [{ chain_id: 'c1', from: FROM, to: '', amount: 0n, fee: 1000n, nonce: 4, asset: 'NGN', escrow: {
     op: 'create', seller: TO, arbiter: '3'.repeat(64), milestones: [40_000_000n, 60_000_000n], ship_by: 1_800_000_000_000, review_secs: 259200, ref: 'job-17' } },
     '75e8db01e8d1f033d182d1488505431e3f35f6bc858e5c0e722e10d13d7dfbb7'],

@@ -24,6 +24,8 @@ func SigningVectors() map[string]*Tx {
 		"guardset":   {ChainID: "c1", From: vecFrom, Fee: 1000, Nonce: 8, Guard: &GuardOp{Op: GuardSet, Guardians: []Address{vecTo, "3333333333333333333333333333333333333333333333333333333333333333"}, Threshold: 2, DelaySecs: 172800}},
 		"guardstart": {ChainID: "c1", From: vecTo, Nonce: 9, Guard: &GuardOp{Op: GuardStart, Account: vecFrom, NewOwner: "4444444444444444444444444444444444444444444444444444444444444444"}},
 		"pooljoin":   {ChainID: "c1", From: vecTo, Nonce: 0, Fee: 1000, Pool: &PoolOp{Op: PoolJoin, ID: id}},
+		"circle":     {ChainID: "c1", From: vecFrom, Fee: 1000, Nonce: 10, Asset: "NGN", Pool: &PoolOp{Op: PoolCreate, Name: "Ajo", Members: []Address{vecFrom, vecTo}, Contribution: 10_000_000, Mode: PoolBidding, InsuranceBps: 200}},
+		"swap":       {ChainID: "c1", From: vecTo, Fee: 1000, Nonce: 11, Pool: &PoolOp{Op: PoolSwap, ID: id, Other: vecFrom}},
 		"escrow": {ChainID: "c1", From: vecFrom, Fee: 1000, Nonce: 4, Asset: "NGN", Escrow: &EscrowOp{
 			Op: EscrowCreate, Seller: vecTo, Arbiter: "3333333333333333333333333333333333333333333333333333333333333333",
 			Milestones: []Amount{40_000_000, 60_000_000}, ShipBy: 1_800_000_000_000, ReviewSecs: 259200, Ref: "job-17"}},
@@ -40,6 +42,8 @@ var vectorHashes = map[string]string{
 	"guardset":   "9ad58e09fe63ed3fe1f01d05ec92fbbb66aed34f36386a899d63faf625babecc",
 	"guardstart": "800da8309049e5e3491b6b2301fd3e768b33316ba7911fa899e1cf6208683e84",
 	"pooljoin":   "82ebaedcce1ec1bbfc48bf170294f7a95c02913657098321586997bc922aedf7",
+	"circle":     "4b919d6ab55c3e973011255437113c3ef36fe73f165981467d9f499271c538e3",
+	"swap":       "4308b08809b83bb6fe7e97dbfefdb86ad635e17d852f8bd30d631bbcaa3092ee",
 	"escrow":     "75e8db01e8d1f033d182d1488505431e3f35f6bc858e5c0e722e10d13d7dfbb7",
 	"resolve":    "690b1de96de2bb17c07bd8dda70bd9b7d40180218126757ab81b661672b3b25d",
 }

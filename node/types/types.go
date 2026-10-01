@@ -140,6 +140,18 @@ const (
 	// whatever is left. Contribution carries the amount to lock.
 	PoolAutopay     = "autopay"
 	PoolStopAutopay = "stop_autopay"
+	// Circle extras.
+	PoolBid      = "bid"      // bidding circles: offer a discount to collect next (Contribution = discount)
+	PoolSwap     = "swap"     // trade payout turns with Other; done when both have asked
+	PoolWithdraw = "withdraw" // savings-goal circles: take your savings out once the goal is met or due
+
+	// Circle modes.
+	PoolRotation = ""        // fixed payout order
+	PoolLottery  = "lottery" // payout order drawn when the circle starts
+	PoolBidding  = "bidding" // whoever offers the biggest discount collects next
+	PoolGoal     = "goal"    // save together toward a target; everyone keeps their own savings
+
+	MaxInsuranceBps = 1000 // at most 10% of each pot goes to the circle's insurance
 
 	MaxPoolMembers = 50
 	MaxPoolName    = 64
@@ -240,6 +252,16 @@ type PoolOp struct {
 	// member on joining to cover a missed payment, and returned at the end.
 	RoundSecs int64  `json:"round_secs,omitempty"`
 	Deposit   Amount `json:"deposit,omitempty"`
+	// Circle options (create): Mode, InsuranceBps (cut of each pot kept to
+	// cover defaults), Target (goal circles). Other names the swap partner.
+	Mode         string  `json:"mode,omitempty"`
+	InsuranceBps uint32  `json:"insurance_bps,omitempty"`
+	Target       Amount  `json:"target,omitempty"`
+	Other        Address `json:"other,omitempty"`
+}
+
+func (p *PoolOp) hasCircle() bool {
+	return p.Mode != "" || p.InsuranceBps != 0 || p.Target != 0 || p.Other != ""
 }
 
 // HexBytes is a byte slice hex encoded in JSON.
@@ -303,6 +325,13 @@ func (tx *Tx) SignBytes() []byte {
 			e.raw([]byte{3})
 			e.u64(uint64(p.RoundSecs))
 			e.u64(p.Deposit)
+		}
+		if p.hasCircle() { // appended only when used: older encodings unchanged
+			e.raw([]byte{5})
+			e.str(p.Mode)
+			e.u64(uint64(p.InsuranceBps))
+			e.u64(p.Target)
+			e.str(string(p.Other))
 		}
 	} else {
 		e.raw([]byte{0})
@@ -598,6 +627,52 @@ func (tx *Tx) checkPoolOp() error {
 		if p.Deposit != 0 && p.RoundSecs == 0 {
 			return errors.New("a deposit needs a round schedule (round_secs)")
 		}
+		switch p.Mode {
+		case PoolRotation, PoolLottery, PoolBidding:
+			if p.Target != 0 {
+				return errors.New("only goal circles have a target")
+			}
+		case PoolGoal:
+			if p.Target == 0 {
+				return errors.New("a goal circle needs a target")
+			}
+			if p.Deposit != 0 || p.InsuranceBps != 0 {
+				return errors.New("goal circles have no deposit or insurance: everyone keeps their own savings")
+			}
+		default:
+			return fmt.Errorf("unknown circle mode %q", p.Mode)
+		}
+		if p.InsuranceBps > MaxInsuranceBps {
+			return errors.New("insurance can be at most 10% of each pot")
+		}
+		if p.Other != "" {
+			return errors.New("create must not name a swap partner")
+		}
+	case PoolBid:
+		if p.ID == (Hash{}) || p.Contribution == 0 {
+			return errors.New("bid needs a pool id and a discount (contribution)")
+		}
+		if p.Name != "" || len(p.Members) != 0 || p.RoundSecs != 0 || p.Deposit != 0 || p.hasCircle() {
+			return errors.New("bid takes a pool id and a discount")
+		}
+	case PoolSwap:
+		if p.ID == (Hash{}) {
+			return errors.New("pool id required")
+		}
+		if err := p.Other.Validate(); err != nil {
+			return fmt.Errorf("swap partner: %w", err)
+		}
+		if p.Name != "" || len(p.Members) != 0 || p.Contribution != 0 || p.RoundSecs != 0 || p.Deposit != 0 || p.Mode != "" || p.InsuranceBps != 0 || p.Target != 0 {
+			return errors.New("swap takes a pool id and the other member")
+		}
+	case PoolContribute:
+		// Contribution is optional: an instalment or a goal-circle amount.
+		if p.ID == (Hash{}) {
+			return errors.New("pool id required")
+		}
+		if p.Name != "" || len(p.Members) != 0 || p.RoundSecs != 0 || p.Deposit != 0 || p.hasCircle() {
+			return errors.New("contribute takes a pool id and an optional amount")
+		}
 	case PoolAutopay:
 		if p.ID == (Hash{}) {
 			return errors.New("pool id required")
@@ -608,11 +683,11 @@ func (tx *Tx) checkPoolOp() error {
 		if p.Name != "" || len(p.Members) != 0 || p.RoundSecs != 0 || p.Deposit != 0 {
 			return errors.New("autopay takes a pool id and an amount")
 		}
-	case PoolJoin, PoolContribute, PoolClaim, PoolStopAutopay:
+	case PoolJoin, PoolClaim, PoolStopAutopay, PoolWithdraw:
 		if p.ID == (Hash{}) {
 			return errors.New("pool id required")
 		}
-		if p.Name != "" || len(p.Members) != 0 || p.Contribution != 0 || p.RoundSecs != 0 || p.Deposit != 0 {
+		if p.Name != "" || len(p.Members) != 0 || p.Contribution != 0 || p.RoundSecs != 0 || p.Deposit != 0 || p.hasCircle() {
 			return fmt.Errorf("%s takes only a pool id", p.Op)
 		}
 	default:

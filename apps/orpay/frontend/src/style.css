@@ -765,3 +765,13 @@ main.narrow { background: var(--surface); }
 .activity li.day:first-child { padding-top: 0; }
 .activity li.day + li { border-top: 0; }
 .activity li.day:hover { background: none; }
+.mode-pick { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.mode-pick button { display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; padding: 12px; border-radius: 14px; background: var(--surface-2); border: 1.5px solid transparent; box-shadow: none; color: var(--text); width: auto; }
+.mode-pick button b { font-size: .9rem; }
+.mode-pick button small { font-size: .75rem; color: var(--muted); font-weight: 400; }
+.mode-pick button[aria-checked='true'] { border-color: var(--brand-1); background: var(--out-bg); }
+.part-pay { display: flex; gap: 8px; align-items: center; }
+.part-pay input { flex: 1; min-width: 0; }
+.part-pay button { width: auto; white-space: nowrap; }
+.chip-s.light { background: rgb(255 255 255 / .18); color: #fff; }
+[hidden] { display: none !important; }

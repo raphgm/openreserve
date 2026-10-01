@@ -583,6 +583,10 @@ func (tx *Tx) checkEscrowOp() error {
 	return nil
 }
 
+// CheckPool validates a pool operation's fields (used by apps to check a
+// circle's options before anyone signs).
+func (tx *Tx) CheckPool() error { return tx.checkPoolOp() }
+
 func (tx *Tx) checkPoolOp() error {
 	p := tx.Pool
 	if tx.To != "" || tx.Amount != 0 {

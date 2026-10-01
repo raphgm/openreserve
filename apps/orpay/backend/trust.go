@@ -18,8 +18,8 @@ import (
 type trustProfile struct {
 	Address   types.Address `json:"address"`
 	Username  string        `json:"username,omitempty"`
-	Score     int           `json:"score"` // 0-100
-	Level     string        `json:"level"` // new, building, trusted, excellent
+	Score     int           `json:"score"`           // 0-100
+	Level     string        `json:"level"`           // new, building, trusted, excellent
 	Since     int64         `json:"since,omitempty"` // first activity (unix ms)
 	Ajo       ajoStats      `json:"ajo"`
 	Escrow    escrowRep     `json:"escrow"`

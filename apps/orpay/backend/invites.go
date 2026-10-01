@@ -33,6 +33,9 @@ type PoolDraft struct {
 	Contribution types.Amount    `json:"contribution"`
 	RoundSecs    int64           `json:"round_secs,omitempty"`
 	Deposit      types.Amount    `json:"deposit,omitempty"`
+	Mode         string          `json:"mode,omitempty"`
+	InsuranceBps uint32          `json:"insurance_bps,omitempty"`
+	Target       types.Amount    `json:"target,omitempty"`
 	Slots        int             `json:"slots"`
 	Members      []types.Address `json:"members"` // organizer first
 	Status       string          `json:"status"`
@@ -47,6 +50,9 @@ func (s *server) createDraft(w http.ResponseWriter, r *http.Request) {
 		Contribution types.Amount `json:"contribution"`
 		RoundSecs    int64        `json:"round_secs"`
 		Deposit      types.Amount `json:"deposit"`
+		Mode         string       `json:"mode"`
+		InsuranceBps uint32       `json:"insurance_bps"`
+		Target       types.Amount `json:"target"`
 		Slots        int          `json:"slots"`
 	}
 	if err := decodeBody(r, &req); err != nil {
@@ -68,9 +74,18 @@ func (s *server) createDraft(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("invalid currency"))
 		return
 	}
+	// Check the circle options exactly as the chain will when the pool is created.
+	probe := &types.Tx{From: reqauth.Caller(r), Pool: &types.PoolOp{Op: types.PoolCreate, Name: req.Name,
+		Members: []types.Address{reqauth.Caller(r), types.Address(strings.Repeat("0", 64))}, Contribution: req.Contribution,
+		RoundSecs: req.RoundSecs, Deposit: req.Deposit, Mode: req.Mode, InsuranceBps: req.InsuranceBps, Target: req.Target}}
+	if err := probe.CheckPool(); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
 	d := &PoolDraft{
 		ID: "ajo_" + randToken("", 8), Organizer: reqauth.Caller(r), Name: req.Name, Asset: req.Asset,
 		Contribution: req.Contribution, RoundSecs: req.RoundSecs, Deposit: req.Deposit, Slots: req.Slots,
+		Mode: req.Mode, InsuranceBps: req.InsuranceBps, Target: req.Target,
 		Members: []types.Address{reqauth.Caller(r)}, Status: DraftOpen, CreatedAt: s.now(),
 	}
 	if err := s.drafts.Update(func(m map[string]*PoolDraft) error { m[d.ID] = d; return nil }); err != nil {
@@ -84,6 +99,7 @@ func (s *server) draftView(d *PoolDraft) map[string]any {
 	return map[string]any{
 		"id": d.ID, "organizer": d.Organizer, "name": d.Name, "asset": d.Asset, "contribution": d.Contribution,
 		"round_secs": d.RoundSecs, "deposit": d.Deposit, "slots": d.Slots, "members": d.Members,
+		"mode": d.Mode, "insurance_bps": d.InsuranceBps, "target": d.Target,
 		"status": d.Status, "pool_id": d.PoolID, "created_at": d.CreatedAt,
 		"invite_url": s.publicURL + "/?ajo_invite=" + d.ID,
 	}
@@ -220,6 +236,9 @@ func (s *server) startedDraft(w http.ResponseWriter, r *http.Request) {
 			Asset        string          `json:"asset"`
 			RoundSecs    int64           `json:"round_secs"`
 			Deposit      types.Amount    `json:"deposit"`
+			Mode         string          `json:"mode"`
+			InsuranceBps uint32          `json:"insurance_bps"`
+			Target       types.Amount    `json:"target"`
 		} `json:"pool"`
 	}
 	if err := s.node.GetJSON("/v1/pools/"+req.PoolID, &pool); err != nil {
@@ -235,10 +254,34 @@ func (s *server) startedDraft(w http.ResponseWriter, r *http.Request) {
 		case d.Status != DraftOpen:
 			return errors.New("already started")
 		case !slices.Equal(p.Members, d.Members) || p.Contribution != d.Contribution || p.Asset != d.Asset ||
-			p.RoundSecs != d.RoundSecs || p.Deposit != d.Deposit:
+			p.RoundSecs != d.RoundSecs || p.Deposit != d.Deposit || p.Mode != d.Mode || p.InsuranceBps != d.InsuranceBps || p.Target != d.Target:
 			return errors.New("the on-chain pool does not match this invite")
 		}
 		d.Status, d.PoolID = DraftStarted, req.PoolID
+		return nil
+	})
+}
+
+// removeFromDraft lets the organiser remove someone before the pool starts.
+func (s *server) removeFromDraft(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		Member types.Address `json:"member"`
+	}
+	if err := decodeBody(r, &req); err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	me := reqauth.Caller(r)
+	s.changeDraft(w, r, func(d *PoolDraft) error {
+		switch {
+		case me != d.Organizer:
+			return errors.New("only the organiser can remove members")
+		case d.Status != DraftOpen:
+			return errors.New("the pool has already started")
+		case req.Member == d.Organizer:
+			return errors.New("the organiser cannot be removed")
+		}
+		d.Members = slices.DeleteFunc(d.Members, func(a types.Address) bool { return a == req.Member })
 		return nil
 	})
 }

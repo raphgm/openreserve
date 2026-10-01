@@ -353,3 +353,17 @@ body:has(.lp) { background: #f7f7fc; }
 .f-float { padding: 9px 12px 9px 9px; border-radius: 13px; }
 .f-left { top: 18px; left: 18px; } .f-right { bottom: 18px; right: 18px; }
 .lp-final.v2 > p { max-width: 38rem; }
+
+/* Shorter escrow lifecycle section */
+.lp-life .lp-sec { padding-block: 64px; }
+.lp-life h2 { font-size: clamp(1.9rem, 3.6vw, 2.6rem); }
+.lp-flow { margin-top: 32px; }
+.lp-flow-card { padding: 18px 22px; }
+.lp-flow-top b { font-size: 1.05rem; }
+.lp-flow-top strong { font-size: 1.45rem; }
+.lp-flow-steps { margin-top: 24px; }
+.lp-flow-steps::before, .lp-flow-steps::after { top: 17px; }
+.lp-flow-steps i { width: 36px; height: 36px; margin-bottom: 6px; }
+.lp-flow-steps b { font-size: .88rem; }
+.lp-life .lp-sub.light { margin-top: 20px; font-size: .95rem; }
+.lp-flow-steps i svg { width: 16px; height: 16px; stroke-width: 2.6; }

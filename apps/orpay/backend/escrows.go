@@ -50,8 +50,10 @@ type EscrowRequest struct {
 	CreatedAt   time.Time      `json:"created_at"`
 	ExpiresAt   time.Time      `json:"expires_at"` // funding deadline
 	EscrowID    string         `json:"escrow_id,omitempty"`
-	Chain       *client.Escrow `json:"chain,omitempty"`  // last seen on-chain state
-	Events      []*hookEvent   `json:"events,omitempty"` // webhook deliveries still owed
+	Chain       *client.Escrow `json:"chain,omitempty"`     // last seen on-chain state
+	Events      []*hookEvent   `json:"events,omitempty"`    // webhook deliveries still owed
+	Kind        string         `json:"kind,omitempty"`      // goods, service, rent
+	Checklist   []string       `json:"checklist,omitempty"` // buyer confirms each before releasing
 }
 
 // hookEvent is a webhook waiting to be delivered.
@@ -70,68 +72,82 @@ func (r *EscrowRequest) total() types.Amount {
 	return t
 }
 
+// escrowInput is what a partner app (API) or a person (escrow link) sends to
+// ask a buyer to fund an escrow.
+type escrowInput struct {
+	Seller     string `json:"seller"` // @username or address (partner apps only)
+	Arbiter    string `json:"arbiter"`
+	Currency   string `json:"currency"`
+	Milestones []struct {
+		Label  string `json:"label"`
+		Amount string `json:"amount"`
+	} `json:"milestones"`
+	ShipByDays  int      `json:"ship_by_days"`
+	ReviewDays  int      `json:"review_days"`
+	Description string   `json:"description"`
+	Reference   string   `json:"reference"`
+	ReturnURL   string   `json:"return_url"`
+	FundWithinH int      `json:"fund_within_hours"`
+	Policy      string   `json:"policy"`    // defaults to the app's escrow policy
+	Kind        string   `json:"kind"`      // goods (default), service, rent
+	Checklist   []string `json:"checklist"` // what the buyer must confirm before releasing
+}
+
+var escrowKinds = map[string]bool{"": true, "goods": true, "service": true, "rent": true}
+
 func (s *server) createEscrowRequest(w http.ResponseWriter, r *http.Request) {
 	app := appFrom(r)
-	var req struct {
-		Seller     string `json:"seller"` // @username or address
-		Arbiter    string `json:"arbiter"`
-		Currency   string `json:"currency"`
-		Milestones []struct {
-			Label  string `json:"label"`
-			Amount string `json:"amount"`
-		} `json:"milestones"`
-		ShipByDays  int    `json:"ship_by_days"`
-		ReviewDays  int    `json:"review_days"`
-		Description string `json:"description"`
-		Reference   string `json:"reference"`
-		ReturnURL   string `json:"return_url"`
-		FundWithinH int    `json:"fund_within_hours"`
-		Policy      string `json:"policy"` // defaults to the app's escrow policy
-	}
+	var req escrowInput
 	if err := decodeBody(r, &req); err != nil {
 		writeErr(w, http.StatusBadRequest, err)
 		return
 	}
-	bad := func(msg string, a ...any) { writeErr(w, http.StatusBadRequest, fmt.Errorf(msg, a...)) }
 	seller, err := s.dir.resolveRef(req.Seller)
 	if err != nil {
-		bad("seller: %v", err)
+		writeErr(w, http.StatusBadRequest, fmt.Errorf("seller: %v", err))
 		return
 	}
-	arbiter := app.Arbiter()
+	er, err := s.newEscrowRequest(app.ID, seller, app.Arbiter(), app.EscrowPolicy, req)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err)
+		return
+	}
+	writeJSON(w, http.StatusCreated, s.escrowView(er, true))
+}
+
+// newEscrowRequest validates and stores an escrow request.
+func (s *server) newEscrowRequest(appID string, seller, arbiter types.Address, defaultPolicy string, req escrowInput) (*EscrowRequest, error) {
+	var err error
 	if req.Arbiter != "" {
 		if arbiter, err = s.dir.resolveRef(req.Arbiter); err != nil {
-			bad("arbiter: %v", err)
-			return
+			return nil, fmt.Errorf("arbiter: %v", err)
 		}
 	}
+	if arbiter == "" {
+		return nil, errors.New("no arbiter available: choose one")
+	}
 	if arbiter == seller {
-		bad("the arbiter must be independent of the seller")
-		return
+		return nil, errors.New("the arbiter must be independent of the seller")
 	}
 	asset, err := s.checkoutAsset(req.Currency)
 	if err != nil {
-		bad("%v", err)
-		return
+		return nil, err
 	}
 	if len(req.Milestones) == 0 || len(req.Milestones) > types.MaxMilestones {
-		bad("give 1-%d milestones", types.MaxMilestones)
-		return
+		return nil, fmt.Errorf("give 1-%d milestones", types.MaxMilestones)
 	}
 	var ms []Milestone
 	for i, m := range req.Milestones {
 		amt, err := types.ParseAmount(m.Amount)
 		if err != nil || amt == 0 || (asset == "NGN" && amt%10_000 != 0) {
-			bad("milestone %d: amount must be a positive decimal string like \"25000.00\"", i+1)
-			return
+			return nil, fmt.Errorf("milestone %d: amount must be a positive decimal string like \"25000.00\"", i+1)
 		}
 		label := strings.TrimSpace(m.Label)
 		if label == "" {
 			label = fmt.Sprintf("Milestone %d", i+1)
 		}
 		if len(label) > 80 {
-			bad("milestone %d: label too long", i+1)
-			return
+			return nil, fmt.Errorf("milestone %d: label too long", i+1)
 		}
 		ms = append(ms, Milestone{Label: label, Amount: amt})
 	}
@@ -144,50 +160,54 @@ func (s *server) createEscrowRequest(w http.ResponseWriter, r *http.Request) {
 	if req.FundWithinH == 0 {
 		req.FundWithinH = 72
 	}
+	var checklist []string
+	for _, c := range req.Checklist {
+		if c = strings.TrimSpace(c); c != "" {
+			checklist = append(checklist, c)
+		}
+	}
 	switch {
 	case req.ShipByDays < 1 || req.ShipByDays > 365:
-		bad("ship_by_days must be 1-365")
-		return
+		return nil, errors.New("ship_by_days must be 1-365")
 	case req.ReviewDays < 1 || req.ReviewDays > 90:
-		bad("review_days must be 1-90")
-		return
+		return nil, errors.New("review_days must be 1-90")
 	case req.FundWithinH < 1 || req.FundWithinH > 30*24:
-		bad("fund_within_hours must be 1-720")
-		return
+		return nil, errors.New("fund_within_hours must be 1-720")
 	case len(req.Description) > 280 || len(req.Reference) > 100:
-		bad("description max 280 chars, reference max 100")
-		return
+		return nil, errors.New("description max 280 chars, reference max 100")
+	case !escrowKinds[req.Kind]:
+		return nil, errors.New("kind must be goods, service or rent")
+	case len(checklist) > 20 || slices.ContainsFunc(checklist, func(c string) bool { return len(c) > 120 }):
+		return nil, errors.New("checklist: up to 20 items of 120 characters")
 	}
 	if req.ReturnURL != "" {
 		if err := validURL(req.ReturnURL, false); err != nil {
-			bad("%v", err)
-			return
+			return nil, err
 		}
 	}
 	policy := strings.TrimSpace(req.Policy)
 	if policy == "" {
-		policy = app.EscrowPolicy
+		policy = defaultPolicy
 	}
 	var termsHash string
 	if policy != "" {
 		if termsHash, err = s.storeTerms(policy); err != nil {
-			bad("policy: %v", err)
-			return
+			return nil, fmt.Errorf("policy: %v", err)
 		}
 	}
 	now := s.now()
 	er := &EscrowRequest{
 		Policy: policy, TermsHash: termsHash,
-		ID: "esr_" + randToken("", 10), AppID: app.ID, Seller: seller, Arbiter: arbiter, Asset: asset,
+		ID: "esr_" + randToken("", 10), AppID: appID, Seller: seller, Arbiter: arbiter, Asset: asset,
 		Milestones: ms, ShipByDays: req.ShipByDays, ReviewDays: req.ReviewDays, Description: req.Description,
 		Reference: req.Reference, ReturnURL: req.ReturnURL, Status: EscrowAwaiting, CreatedAt: now,
 		ExpiresAt: now.Add(time.Duration(req.FundWithinH) * time.Hour),
+		Kind:      req.Kind, Checklist: checklist,
 	}
 	if err := s.escrows.Update(func(m map[string]*EscrowRequest) error { m[er.ID] = er; return nil }); err != nil {
-		writeErr(w, http.StatusInternalServerError, err)
-		return
+		return nil, err
 	}
-	writeJSON(w, http.StatusCreated, s.escrowView(er, true))
+	return er, nil
 }
 
 func (s *server) escrowView(er *EscrowRequest, forApp bool) map[string]any {
@@ -201,6 +221,7 @@ func (s *server) escrowView(er *EscrowRequest, forApp bool) map[string]any {
 		"ship_by_days": er.ShipByDays, "review_days": er.ReviewDays, "description": er.Description,
 		"status": er.Status, "created_at": er.CreatedAt, "expires_at": er.ExpiresAt,
 		"funding_url": s.publicURL + "/?escrow_request=" + er.ID,
+		"kind":        er.Kind, "checklist": er.Checklist,
 	}
 	if er.Policy != "" {
 		v["policy"], v["terms_hash"], v["terms_memo"] = er.Policy, er.TermsHash, "terms:"+er.TermsHash

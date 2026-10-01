@@ -96,6 +96,7 @@ type server struct {
 	phones       *jsonstore.Store[*phoneData]
 	signins      *jsonstore.Store[map[types.Address]*signIn]
 	trust        trustCache
+	arbiters     *jsonstore.Store[map[types.Address]*Arbiter]
 	sms          SMSSender
 	devOTP       bool
 	vapid        vapidKeys
@@ -169,6 +170,10 @@ func newServer(cfg serverConfig) (*server, error) {
 	if err != nil {
 		return nil, err
 	}
+	arbiters, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-arbiters.json"), map[types.Address]*Arbiter{})
+	if err != nil {
+		return nil, err
+	}
 	vapid, err := loadVAPID(cfg.stateDir)
 	if err != nil {
 		return nil, err
@@ -181,7 +186,7 @@ func newServer(cfg serverConfig) (*server, error) {
 		terms: terms, chats: chats, secret: secret, drafts: drafts, pushes: pushes, vapid: vapid,
 		dir: dir, node: cfg.node, invoices: invoices, apps: apps, escrows: escrows, now: time.Now, stateDir: cfg.stateDir,
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
-		hookClient: webhookClient(cfg.privateHooks), phones: phones, signins: signins, sms: devSMS{}, devOTP: true,
+		hookClient: webhookClient(cfg.privateHooks), phones: phones, signins: signins, arbiters: arbiters, sms: devSMS{}, devOTP: true,
 	}
 	if k := os.Getenv("TERMII_API_KEY"); k != "" {
 		sender := os.Getenv("TERMII_SENDER")
@@ -284,6 +289,16 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/ajo-invites/{id}/remove", strict(30, 10, reqauth.Signed(s.removeFromDraft)))
 	mux.Handle("POST /api/pools/{id}/nudge", strict(20, 5, reqauth.Signed(s.nudgePool)))
 	mux.Handle("POST /api/ajo-invites/{id}/started", strict(30, 10, reqauth.Signed(s.startedDraft)))
+
+	// Escrow links for social sellers, and the arbiter marketplace.
+	mux.Handle("POST /api/escrow-links", strict(20, 5, reqauth.Signed(s.createEscrowLink)))
+	mux.HandleFunc("GET /api/escrow-links", reqauth.Signed(s.myEscrowLinks))
+	mux.Handle("POST /api/escrow-links/{id}/cancel", strict(20, 5, reqauth.Signed(s.cancelEscrowLink)))
+	mux.HandleFunc("GET /api/arbiters", s.listArbiters)
+	mux.HandleFunc("GET /api/arbiters/all", reqauth.Signed(s.pendingArbiters))
+	mux.Handle("POST /api/arbiters/apply", strict(10, 3, reqauth.Signed(s.applyArbiter)))
+	mux.Handle("POST /api/arbiters/{addr}/review", strict(30, 10, reqauth.Signed(s.reviewArbiter)))
+	mux.Handle("POST /api/escrows/{id}/rate-arbiter", strict(20, 5, reqauth.Signed(s.rateArbiter)))
 
 	// Public trust profiles built from on-chain history.
 	mux.Handle("GET /api/trust/{who}", strict(120, 30, http.HandlerFunc(s.getTrust)))

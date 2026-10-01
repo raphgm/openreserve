@@ -156,15 +156,6 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
   const io = 'IntersectionObserver' in window && new IntersectionObserver((es) => es.forEach((e) => e.isIntersecting && (e.target.classList.add('in'), io.unobserve(e.target))), { threshold: 0.15 })
   app.querySelectorAll('.reveal').forEach((el, i) => (io ? ((el.style.transitionDelay = `${(i % 4) * 70}ms`), io.observe(el)) : el.classList.add('in')))
 
-  const wrap = app.querySelector('.lp-phone-wrap'), phone = app.querySelector('.lp-phone')
-  if (wrap && matchMedia('(hover: hover)').matches) {
-    wrap.onpointermove = (e) => {
-      const r = wrap.getBoundingClientRect()
-      const x = (e.clientX - r.left) / r.width - 0.5, y = (e.clientY - r.top) / r.height - 0.5
-      phone.style.transform = `perspective(1000px) rotateY(${x * 10}deg) rotateX(${-y * 8}deg)`
-    }
-    wrap.onpointerleave = () => (phone.style.transform = '')
-  }
   fetch('/v1/status').then((r) => r.json()).then((st) => {
     const el = document.getElementById('lp-live')
     if (el && st.height > 0) el.textContent = `Live on OpenReserve · block ${st.height.toLocaleString()}`

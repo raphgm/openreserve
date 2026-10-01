@@ -10,6 +10,8 @@ import { initDevelopers, renderDevelopers } from './developers.js'
 import { confirmDeposit, initMoney, renderAddMoney, renderWithdraw } from './money.js'
 import { initEscrow, renderEscrow, renderEscrows, renderFundRequest } from './escrow.js'
 import { renderLanding } from './landing.js'
+import { openScanner } from './scan.js'
+import { bioEnabled, bioSupported, disableBio, enableBio, unlockBio } from './bio.js'
 import { newSignInWords, parseSignInWords, sealSignIn, signInToken, unsealSignIn } from './signin.js'
 import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './vault.js'
 
@@ -134,6 +136,7 @@ function renderProfile() {
     ${item('m-receive', '↓', 'My address & QR', 'Share to get paid')}
     ${item('m-six', '6', 'Six-word sign-in', 'Open this wallet on another device')}
     ${item('m-words', '24', 'Recovery words', 'Your offline backup')}
+    ${item('m-bio', '☝︎', 'Face ID / fingerprint', bioEnabled() ? 'On: unlock without your password' : 'Unlock without typing your password')}
     ${item('m-notify', '🔔', 'Notifications', 'Payments, ajo turns, escrow updates')}
     ${item('m-lock', '⎋', 'Sign out', 'Lock the wallet on this device', 'danger')}
     ${item('m-forget', '✕', 'Remove from this device', 'Needs your six or 24 words to sign in again', 'danger subtle')}
@@ -148,10 +151,25 @@ function renderProfile() {
     $('#panel').innerHTML = `<p class="muted">Anyone with these words can take your money. Keep them offline.</p>${wordGrid(state.seed)}`
   })
   on('#m-notify', () => enablePush().then(() => toast('Notifications are on')).catch((err) => toast(err.message, 'err')))
+  on('#m-bio', async () => {
+    if (bioEnabled()) {
+      if (confirm('Turn off Face ID / fingerprint unlock on this device?')) disableBio(), toast('Turned off'), renderProfile()
+      return
+    }
+    try {
+      if (!(await bioSupported())) throw new Error('No Face ID, Touch ID or fingerprint is available in this browser.')
+      await enableBio(state.seed, state.address, state.username ? `@${state.username}` : 'ORPay wallet')
+      toast('Face ID / fingerprint unlock is on')
+      renderProfile()
+    } catch (err) {
+      if (err.name !== 'NotAllowedError') toast(err.message, 'err')
+    }
+  })
   on('#m-lock', lock)
   on('#m-forget', () => {
     if (!confirm('Remove this wallet from this device? You will need your six sign-in words or 24 recovery words to use it here again.')) return
     clearVault()
+    disableBio()
     try {
       sessionStorage.removeItem(SESSION)
     } catch {}
@@ -285,9 +303,10 @@ function renderUnlock() {
       <div class="brand"><span class="logo" aria-label="ORPay"><span class="logo-or">OR</span><span class="logo-pay">Pay</span></span></div>
       <h1>Welcome back</h1>
       ${addr ? `<div class="who-chip"><span class="avatar" style="--hue:${parseInt(addr.slice(0, 4), 16) % 360}">${addr.slice(0, 2).toUpperCase()}</span><span><small>Your wallet</small><span class="mono">${short(addr)}</span></span></div>` : ''}
+      ${bioEnabled() ? `<button class="primary bio-btn" id="bio" type="button"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 11v3M8.5 9a4 4 0 0 1 7 2.5V14a8 8 0 0 1-1 4M7 12v2a5 5 0 0 0 .5 2.2M12 4a8 8 0 0 1 8 8v2M4 14v-2a8 8 0 0 1 3-6.2"/></svg>Unlock with Face ID / fingerprint</button><p class="or-line"><span>or use your password</span></p>` : ''}
       <form id="f" class="stack">
         <label>Password
-          <span class="pw-field"><input type="password" id="pw" autocomplete="current-password" autofocus required placeholder="Enter your password">
+          <span class="pw-field"><input type="password" id="pw" autocomplete="current-password" ${bioEnabled() ? '' : 'autofocus'} required placeholder="Enter your password">
           <button type="button" class="pw-eye" id="eye" aria-label="Show password">Show</button></span>
         </label>
         <p class="error" id="err"></p>
@@ -299,6 +318,16 @@ function renderUnlock() {
       </div>
       <p class="trust"><svg viewBox="0 0 24 24" aria-hidden="true"><rect x="5" y="11" width="14" height="9" rx="2"/><path d="M8 11V8a4 4 0 0 1 8 0v3"/></svg>Your keys are encrypted and never leave this device.</p>
     </main>`
+  if ($('#bio'))
+    $('#bio').onclick = async () => {
+      $('#err').textContent = ''
+      try {
+        const seed = await unlockBio()
+        openWallet(seed, await addressOf(seed))
+      } catch (err) {
+        if (err.name !== 'NotAllowedError') $('#err').textContent = err.message
+      }
+    }
   $('#f').onsubmit = async (e) => {
     e.preventDefault()
     $('#go').disabled = true
@@ -320,6 +349,7 @@ function renderUnlock() {
   $('#forget').onclick = () => {
     if (confirm('Remove this wallet from this device? You can only get it back with its recovery key.')) {
       clearVault()
+      disableBio()
       renderWelcome()
     }
   }
@@ -433,6 +463,31 @@ function showPanel(title) {
   card.scrollIntoView({ behavior: 'smooth', block: 'start' })
 }
 
+// Scan a QR to pay: opens the Send form filled in from the code.
+function scanToPay() {
+  openScanner((req) => {
+    if (state.view !== 'home') showView('home')
+    showPanel('Send money')
+    renderSend(req)
+  }).catch((err) => toast(err.message, 'err'))
+}
+
+// People this wallet paid or was paid by, most recent first.
+function recentContacts(limit = 8) {
+  const seen = new Set()
+  const out = []
+  for (const e of state.history) {
+    const tx = e.tx
+    if (tx.pool || tx.escrow || tx.kind === 'mint' || tx.kind === 'burn' || !tx.to) continue
+    const other = tx.from === state.address ? tx.to : tx.from
+    if (!other || other === state.address || seen.has(other)) continue
+    seen.add(other)
+    out.push(other)
+    if (out.length === limit) break
+  }
+  return out
+}
+
 function openPanel(tab) {
   state.tab = tab
   showPanel(tab === 'send' ? 'Send money' : 'Receive money')
@@ -441,7 +496,8 @@ function openPanel(tab) {
 
 function homeHTML() {
   return `
-      <div class="greet"><small id="greet-time"></small><strong id="greet-name"></strong></div>
+      <div class="greet"><span><small id="greet-time"></small><strong id="greet-name"></strong></span>
+        <button class="scan-btn" id="scan" aria-label="Scan a QR code to pay"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3M4 12h16"/></svg></button></div>
       <section class="card balance" id="balance"></section>
       <nav class="quick-actions" aria-label="Quick actions">
         <button data-qa="send"><i>${qaIcon.send}</i>Send</button>
@@ -517,6 +573,7 @@ function bindHome() {
     else showView('pools', renderPools)
   }))
   $('#panel-close').onclick = () => ($('#panel-card').hidden = true)
+  $('#scan').onclick = scanToPay
   $('#see-all').onclick = () => ((state.allActivity = true), renderActivity())
   greeting()
   renderBalance()
@@ -687,7 +744,11 @@ function renderSend(prefill = {}) {
   $('#panel').innerHTML = `
     <form id="send" class="stack" autocomplete="off">
       ${prefill.to ? '<p class="banner">Payment request. Check the details before you send.</p>' : ''}
-      <label>To<input id="to" placeholder="@username or address" required></label>
+      ${recentContacts().length ? `<div class="contacts" aria-label="Recent">${recentContacts().map((a) => {
+        const n = state.names.get(a)
+        return `<button type="button" class="contact" data-addr="${a}"><span class="avatar" style="--hue:${parseInt(a.slice(0, 4), 16) % 360}">${esc((n ?? a).slice(0, 2).toUpperCase())}</span><small>${n ? '@' + esc(n) : short(a)}</small></button>`
+      }).join('')}</div>` : ''}
+      <label><span class="to-row">To <button type="button" class="link small-link" id="scan-to">Scan QR</button></span><input id="to" placeholder="@username or address" required></label>
       <p class="hint" id="to-hint"></p>
       ${curs.length > 1 ? `<div class="seg" role="radiogroup" aria-label="Currency">${curs.map((c) => `<button type="button" role="radio" data-cur="${c}">${assetLabel(c)}</button>`).join('')}</div>` : ''}
       <label><span id="amount-label">Amount</span><input id="amount" inputmode="decimal" placeholder="0.00" required></label>
@@ -706,6 +767,13 @@ function renderSend(prefill = {}) {
   setAsset(asset)
   let resolved = null
   const toInput = $('#to')
+  $('#scan-to').onclick = scanToPay
+  app.querySelectorAll('.contact').forEach((b) => (b.onclick = () => {
+    const n = state.names.get(b.dataset.addr)
+    toInput.value = n ? '@' + n : b.dataset.addr
+    toInput.oninput()
+    $('#amount').focus()
+  }))
   if (prefill.to) {
     toInput.value = isAddress(prefill.to) ? prefill.to : '@' + prefill.to.replace(/^@/, '')
     $('#amount').value = prefill.amount ?? ''

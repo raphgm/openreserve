@@ -655,3 +655,32 @@ main.wallet { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 .menu-item.danger b { color: var(--danger); }
 .menu-item.danger .mi-ico { background: #fff1f2; color: var(--danger); }
 .menu-item.subtle { opacity: .75; }
+
+/* Scan, contacts, biometric */
+.greet { flex-direction: row; align-items: center; justify-content: space-between; }
+.greet > span { display: flex; flex-direction: column; gap: 2px; }
+.scan-btn { width: 46px; height: 46px; border-radius: 16px; display: grid; place-items: center; padding: 0; background: var(--surface); box-shadow: 0 0 0 1px var(--border), 0 8px 18px -12px rgb(15 23 42 / .35); border: 0; }
+.scan-btn svg, .bio-btn svg { width: 22px; height: 22px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.scan-btn { color: var(--brand-1); }
+.to-row { display: flex; justify-content: space-between; align-items: center; }
+.small-link { font-size: .8rem; padding: 0; width: auto; }
+.contacts { display: flex; gap: 12px; overflow-x: auto; padding: 2px 2px 6px; scrollbar-width: none; }
+.contacts::-webkit-scrollbar { display: none; }
+.contact { display: flex; flex-direction: column; align-items: center; gap: 6px; background: none; border: 0; box-shadow: none; padding: 0; width: 64px; flex: none; color: var(--text); }
+.contact .avatar { width: 48px; height: 48px; border-radius: 50%; display: grid; place-items: center; color: #fff; font-weight: 800; font-size: .8rem; background: linear-gradient(135deg, hsl(var(--hue) 75% 55%), hsl(calc(var(--hue) + 60) 80% 50%)); }
+.contact small { font-size: .7rem; max-width: 64px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
+.bio-btn { display: flex; align-items: center; justify-content: center; gap: 10px; }
+.or-line { display: flex; align-items: center; gap: 12px; color: var(--muted); font-size: .8rem; margin: 2px 0; }
+.or-line::before, .or-line::after { content: ''; flex: 1; height: 1px; background: var(--border); }
+.scanner { position: fixed; inset: 0; z-index: 100; background: #000; display: grid; place-items: center; }
+.scanner video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.scan-frame { position: relative; width: min(70vw, 280px); aspect-ratio: 1; border-radius: 24px; box-shadow: 0 0 0 100vmax rgb(0 0 0 / .55); }
+.scan-frame i { position: absolute; width: 40px; height: 40px; border: 4px solid #fff; }
+.scan-frame i:nth-child(1) { left: 0; top: 0; border-right: 0; border-bottom: 0; border-radius: 20px 0 0 0; }
+.scan-frame i:nth-child(2) { right: 0; top: 0; border-left: 0; border-bottom: 0; border-radius: 0 20px 0 0; }
+.scan-frame i:nth-child(3) { left: 0; bottom: 0; border-right: 0; border-top: 0; border-radius: 0 0 0 20px; }
+.scan-frame i:nth-child(4) { right: 0; bottom: 0; border-left: 0; border-top: 0; border-radius: 0 0 20px 0; }
+.scan-line { position: absolute; left: 10%; right: 10%; height: 2px; top: 10%; background: #22d3ee; box-shadow: 0 0 12px #22d3ee; animation: scan 2s ease-in-out infinite alternate; }
+@keyframes scan { to { top: 90%; } }
+.scan-hint { position: absolute; bottom: 18%; left: 0; right: 0; text-align: center; color: #fff; font-weight: 600; }
+.scan-close { position: absolute; top: calc(16px + env(safe-area-inset-top)); right: 16px; width: 44px; height: 44px; border-radius: 50%; padding: 0; background: rgb(255 255 255 / .15); color: #fff; border: 0; font-size: 1.1rem; }

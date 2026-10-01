@@ -3,6 +3,7 @@
 // who is next, and a timeline of every join, contribution and claim.
 import { api, assetLabel, formatAmount, formatMoney, node, parseAmount, poolOp, waitForCommit } from './orp.js'
 import { renderSVG } from 'uqr'
+import { fillTrust } from './trust.js'
 
 let ctx // { state, $, esc, short, toast, nameOf, resolveRecipient, root }
 
@@ -395,7 +396,7 @@ export async function renderPool(id, preloaded) {
       return `
         <li class="${i === me ? 'me' : ''}">
           <span class="pos">${i + 1}</span>
-          <span class="who"><strong>${label(m)}</strong>${state}${extra.length ? `<span class="member-extra">${extra.join('')}</span>` : ''}</span>
+          <span class="who"><strong>${label(m)} <span data-trust="${m}"></span></strong>${state}${extra.length ? `<span class="member-extra">${extra.join('')}</span>` : ''}</span>
           ${pay}
         </li>`
     })
@@ -497,6 +498,7 @@ export async function renderPool(id, preloaded) {
   // Set via the CSSOM: the production CSP forbids inline style attributes.
   root.querySelectorAll('[data-w]').forEach((el) => (el.style.width = `${el.dataset.w}%`))
   ctx.$('#back').onclick = renderPools
+  fillTrust(root)
   ctx.$('#share').onclick = () => {
     const link = `${location.origin}/?pool=${p.id}`
     navigator.clipboard.writeText(link).then(() => ctx.toast('Pool link copied'))

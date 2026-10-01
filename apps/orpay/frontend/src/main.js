@@ -11,6 +11,7 @@ import { confirmDeposit, initMoney, renderAddMoney, renderWithdraw } from './mon
 import { initEscrow, renderEscrow, renderEscrows, renderFundRequest } from './escrow.js'
 import { renderLanding } from './landing.js'
 import { openScanner } from './scan.js'
+import { fillTrust, showTrustCard, trustChip, trustOf } from './trust.js'
 import { bioEnabled, bioSupported, disableBio, enableBio, unlockBio } from './bio.js'
 import { newSignInWords, parseSignInWords, sealSignIn, signInToken, unsealSignIn } from './signin.js'
 import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './vault.js'
@@ -141,7 +142,7 @@ function renderProfile() {
   showPanel(state.username ? `@${state.username}` : 'Your wallet')
   const item = (id, icon, title, sub, cls = '') =>
     `<button class="menu-item ${cls}" id="${id}"><span class="mi-ico">${icon}</span><span><b>${title}</b><small>${sub}</small></span></button>`
-  $('#panel').innerHTML = `<div class="menu">
+  $('#panel').innerHTML = `<div id="my-trust"></div><div class="menu">
     ${state.username ? '' : item('m-claim', '@', 'Claim a username', 'So people can pay you by name')}
     ${item('m-receive', '↓', 'My address & QR', 'Share to get paid')}
     ${item('m-six', '6', 'Six-word sign-in', 'Open this wallet on another device')}
@@ -153,6 +154,7 @@ function renderProfile() {
     ${item('m-forget', '✕', 'Remove from this device', 'Needs your six or 24 words to sign in again', 'danger subtle')}
   </div>`
   const on = (id, fn) => $(id) && ($(id).onclick = fn)
+  showTrustCard($('#my-trust'), state.address, { title: 'Your trust profile' })
   on('#m-claim', renderClaim)
   on('#m-receive', () => openPanel('receive'))
   on('#m-six', renderSignInSetup)
@@ -770,6 +772,7 @@ function renderSend(prefill = {}) {
       }).join('')}</div>` : ''}
       <label><span class="to-row">To <button type="button" class="link small-link" id="scan-to">Scan QR</button></span><input id="to" placeholder="@username or address" required></label>
       <p class="hint" id="to-hint"></p>
+      <p class="to-trust" id="to-trust"></p>
       ${curs.length > 1 ? `<div class="seg" role="radiogroup" aria-label="Currency">${curs.map((c) => `<button type="button" role="radio" data-cur="${c}">${assetLabel(c)}</button>`).join('')}</div>` : ''}
       <label><span id="amount-label">Amount</span><input id="amount" inputmode="decimal" placeholder="0.00" required></label>
       <label><span>Note <span class="muted">(optional, public)</span></span><input id="memo" maxlength="140"></label>
@@ -805,10 +808,12 @@ function renderSend(prefill = {}) {
     const hint = $('#to-hint')
     if (!hint) return // form was replaced before the debounce fired
     hint.textContent = ''
+    if ($('#to-trust')) $('#to-trust').innerHTML = ''
     if (!v) return
     try {
       resolved = await resolveRecipient(v)
       if (!hint.isConnected) return
+      trustOf(resolved).then((t) => $('#to-trust') && ($('#to-trust').innerHTML = t ? trustChip(t) : ''))
       hint.textContent = v.startsWith('@') || !isAddress(v) ? `→ ${short(resolved)}` : state.names.get(v) ? `@${state.names.get(v)}` : ''
     } catch (err) {
       if (hint.isConnected) hint.textContent = err.message

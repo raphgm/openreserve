@@ -2,6 +2,7 @@
 // in milestones by the buyer, with an independent arbiter for disputes and
 // timeouts so money is never stuck. Everything shown is read from the chain.
 import { api, assetLabel, escrowOp, formatMoney, node, parseAmount, partnerMark, waitForCommit } from './orp.js'
+import { fillTrust, showTrustCard } from './trust.js'
 
 let ctx
 
@@ -272,8 +273,8 @@ export async function renderEscrow(id, preloaded, focus) {
       <p class="label">${open ? 'Locked in escrow' : 'Escrow total'}</p>
       <p class="amount">${money(open ? e.balance : total(e))}</p>
       <div class="pool-stats">
-        <div><span>Buyer</span><strong>${label(e.buyer)}</strong></div>
-        <div><span>Seller</span><strong>${label(e.seller)}</strong></div>
+        <div><span>Buyer</span><strong>${label(e.buyer)}</strong><span data-trust="${e.buyer}"></span></div>
+        <div><span>Seller</span><strong>${label(e.seller)}</strong><span data-trust="${e.seller}"></span></div>
         <div><span>Arbiter</span><strong>${label(e.arbiter)}</strong></div>
       </div>
     </section>
@@ -335,6 +336,7 @@ export async function renderEscrow(id, preloaded, focus) {
         ctx.$('#split-hint').textContent = 'Enter an amount.'
       }
     }
+  fillTrust(root)
   // A partner link (?escrow=ID&action=release) points at one step: bring
   // that button into view. The person still reviews and confirms it.
   const target = focus && root.querySelector(`[data-op="${CSS.escape(focus)}"]`)
@@ -411,18 +413,21 @@ export async function renderFundRequest(id) {
       </div>
       <p class="amount">${money(r.total)}</p>
       <dl class="summary">
-        <dt>Paid to</dt><dd>${label(r.seller)}</dd>
+        <dt>Paid to</dt><dd>${label(r.seller)} <span data-trust="${r.seller}"></span></dd>
         <dt>Disputes settled by</dt><dd>${label(r.arbiter)}</dd>
         <dt>Delivery deadline</dt><dd>${r.ship_by_days} days after funding</dd>
         <dt>Your review period</dt><dd>${r.review_days} days after delivery</dd>
       </dl>
       <ul class="milestones">${r.milestones.map((m) => `<li><span>${ctx.esc(m.label)}</span><strong>${money(m.amount)}</strong><span class="pending">Held</span></li>`).join('')}</ul>
+      <div id="seller-trust"></div>
       <p class="small-text muted">Your money is locked on-chain, not held by ${ctx.esc(app.brand_name || app.name)}. Inspect the goods when they arrive and release payment when you're satisfied. If they're not as described, open a dispute and the arbiter decides.</p>
       ${r.policy ? `<div class="terms-box"><p class="label">Seller's terms</p><p class="terms-text">${ctx.esc(r.policy)}</p></div>
       <label class="check"><input type="checkbox" id="accept"> I have read and accept these terms. I understand returns are not accepted.</label>` : ''}
       <p class="error" id="err"></p>
       ${expired ? `<p class="banner">This request ${r.status === 'cancelled' ? 'was cancelled by the seller' : 'has expired'}. Ask for a new one.</p>` : `<button class="primary" id="fund">Lock ${money(r.total)} in escrow</button>`}
     </section>`
+  fillTrust(root)
+  showTrustCard(ctx.$('#seller-trust'), r.seller, { title: "Seller's trust profile" })
   const btn = ctx.$('#fund')
   if (!btn) return
   if (!ctx.state.seed) btn.textContent = 'Open ORPay wallet to fund'

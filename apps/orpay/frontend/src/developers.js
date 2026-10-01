@@ -100,7 +100,7 @@ function appCard(a) {
         </div>
         <label>Webhook URL<input data-field="webhook_url" value="${ctx.esc(a.webhook_url ?? '')}" placeholder="https://your-app.com/orpay/webhook"></label>
         <label>Settlement wallet (receives payments)<input data-field="settlement_address" class="mono" value="${ctx.esc(a.settlement_address)}"></label>
-        <label>Website <span class="muted">(your logo is taken from here automatically)</span><input data-field="website" value="${ctx.esc(a.website)}" placeholder="https://gabis.pages.dev"></label>
+        <label>Website <span class="muted">(your logo is taken from here automatically)</span><input data-field="website" value="${ctx.esc(a.website)}" placeholder="https://yourapp.com"></label>
         <div class="logo-row">
           ${a.logo_type ? partnerMark({ ...a, status: 'approved', logo_url: `/api/apps/${a.id}/logo?v=${Date.parse(a.logo_at) || 0}` }, 'pool-avatar') : '<span class="pool-avatar muted-bg">?</span>'}
           <span class="small-text muted">${a.logo_type ? `Logo from <span class="mono">${ctx.esc(new URL(a.logo_source).host)}</span>, refreshed daily` : 'No logo found yet on your website.'}</span>
@@ -237,8 +237,8 @@ function renderRequest() {
       <p class="muted small-text">Tell us about your company. An OpenReserve admin reviews each request before API keys are issued.</p>
       <form id="f" class="stack" autocomplete="off">
         <label>App or company name<input id="name" maxlength="40" placeholder="Gabis" required></label>
-        <label>Website<input id="website" type="url" placeholder="https://gabis.app" required></label>
-        <label>Contact email<input id="email" type="email" placeholder="dev@gabis.app" required></label>
+        <label>Website<input id="website" type="url" placeholder="https://yourapp.com" required></label>
+        <label>Contact email<input id="email" type="email" placeholder="dev@yourapp.com" required></label>
         <label>What will you use ORPay for?<textarea id="desc" rows="3" maxlength="1000" placeholder="e.g. Customers pay invoices through Gabis Payments"></textarea></label>
         <label>Settlement wallet <span class="muted">(optional, defaults to this wallet)</span><input id="settle" class="mono" placeholder="64-character address"></label>
         <p class="error" id="err"></p>

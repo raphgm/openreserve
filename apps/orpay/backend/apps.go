@@ -140,7 +140,7 @@ func (s *server) requestApp(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, errors.New("app name must be 2-40 letters, numbers, spaces or .&'-"))
 		return
 	case validURL(req.Website, false) != nil:
-		writeErr(w, http.StatusBadRequest, errors.New("enter your website, e.g. https://gabis.app"))
+		writeErr(w, http.StatusBadRequest, errors.New("enter your website, e.g. https://yourapp.com"))
 		return
 	case !strings.Contains(req.Contact, "@") || len(req.Contact) > 120:
 		writeErr(w, http.StatusBadRequest, errors.New("enter a contact email"))
@@ -311,7 +311,7 @@ func (s *server) updateApp(w http.ResponseWriter, r *http.Request) {
 		}
 		if req.Website != nil && *req.Website != a.Website {
 			if err := validURL(*req.Website, false); err != nil {
-				return errors.New("enter your website, e.g. https://gabis.pages.dev")
+				return errors.New("enter your website, e.g. https://yourapp.com")
 			}
 			a.Website = *req.Website
 			websiteChanged = true

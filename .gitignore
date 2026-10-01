@@ -13,3 +13,4 @@ deploy/genesis.json
 !.env.example
 deploy/.monitor-state
 testnet/
+apps/orpay/backend/backend

@@ -24,7 +24,7 @@ const checkout = await orpay.createCheckout({
   amount: '12.50',              // decimal string, never a float
   description: 'Invoice #1042',
   reference: 'inv-1042',        // your own order id
-  returnUrl: 'https://gabis.pages.dev/orders/1042',
+  returnUrl: 'https://yourapp.com/orders/1042',
 })
 // Redirect the customer to checkout.checkout_url
 ```

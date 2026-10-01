@@ -643,3 +643,15 @@ a.logo { text-decoration: none; color: inherit; }
 }
 .tabbar button { border-radius: 14px; padding: 8px 4px; }
 main.wallet { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
+
+/* Profile menu */
+.menu { display: flex; flex-direction: column; gap: 4px; }
+.menu-item { display: flex; align-items: center; gap: 14px; width: 100%; text-align: left; padding: 12px; border-radius: 16px; background: transparent; border: 0; box-shadow: none; color: var(--text); font-weight: 400; }
+.menu-item:hover { background: var(--surface-2); }
+.menu-item > span:last-child { display: flex; flex-direction: column; gap: 2px; }
+.menu-item b { font-size: .95rem; font-weight: 600; }
+.menu-item small { color: var(--muted); font-size: .8rem; }
+.mi-ico { width: 40px; height: 40px; border-radius: 13px; display: grid; place-items: center; flex: none; font-weight: 800; font-size: .85rem; background: var(--out-bg); color: var(--brand-1); }
+.menu-item.danger b { color: var(--danger); }
+.menu-item.danger .mi-ico { background: #fff1f2; color: var(--danger); }
+.menu-item.subtle { opacity: .75; }

@@ -124,6 +124,41 @@ function renderSignIn() {
   }
 }
 
+// Profile menu (tap your @username): account, security and sign out.
+function renderProfile() {
+  showPanel(state.username ? `@${state.username}` : 'Your wallet')
+  const item = (id, icon, title, sub, cls = '') =>
+    `<button class="menu-item ${cls}" id="${id}"><span class="mi-ico">${icon}</span><span><b>${title}</b><small>${sub}</small></span></button>`
+  $('#panel').innerHTML = `<div class="menu">
+    ${state.username ? '' : item('m-claim', '@', 'Claim a username', 'So people can pay you by name')}
+    ${item('m-receive', '↓', 'My address & QR', 'Share to get paid')}
+    ${item('m-six', '6', 'Six-word sign-in', 'Open this wallet on another device')}
+    ${item('m-words', '24', 'Recovery words', 'Your offline backup')}
+    ${item('m-notify', '🔔', 'Notifications', 'Payments, ajo turns, escrow updates')}
+    ${item('m-lock', '⎋', 'Sign out', 'Lock the wallet on this device', 'danger')}
+    ${item('m-forget', '✕', 'Remove from this device', 'Needs your six or 24 words to sign in again', 'danger subtle')}
+  </div>`
+  const on = (id, fn) => $(id) && ($(id).onclick = fn)
+  on('#m-claim', renderClaim)
+  on('#m-receive', () => openPanel('receive'))
+  on('#m-six', renderSignInSetup)
+  on('#m-words', () => {
+    if (!confirm('Show your 24 recovery words? Make sure nobody can see your screen.')) return
+    showPanel('Recovery words')
+    $('#panel').innerHTML = `<p class="muted">Anyone with these words can take your money. Keep them offline.</p>${wordGrid(state.seed)}`
+  })
+  on('#m-notify', () => enablePush().then(() => toast('Notifications are on')).catch((err) => toast(err.message, 'err')))
+  on('#m-lock', lock)
+  on('#m-forget', () => {
+    if (!confirm('Remove this wallet from this device? You will need your six sign-in words or 24 recovery words to use it here again.')) return
+    clearVault()
+    try {
+      sessionStorage.removeItem(SESSION)
+    } catch {}
+    location.href = '/'
+  })
+}
+
 // Turn on six-word sign-in from Wallet settings.
 async function renderSignInSetup() {
   showPanel('Six-word sign-in')
@@ -575,7 +610,7 @@ function renderHeader() {
       <button class="chip" id="me">${who ? `@${esc(who)}` : 'Claim @name'}</button>`
     $('#me').onclick = () => {
       if (state.view !== 'home') showView('home')
-      who ? openPanel('receive') : renderClaim()
+      renderProfile()
     }
   }
   $('#net').innerHTML = net

@@ -196,3 +196,40 @@ func TestEscrowRequestCancel(t *testing.T) {
 		t.Errorf("second cancel: %d", code)
 	}
 }
+
+func TestAppDashboard(t *testing.T) {
+	e := newEnv(t)
+	owner, dev, stranger := newWallet(t), newWallet(t), newWallet(t)
+	var app App
+	e.call("POST", "/api/apps", map[string]string{"name": "Gabis", "website": "https://gabis.example", "contact_email": "a@b.c"}, &owner, "", &app)
+	e.call("POST", "/api/apps/"+app.ID+"/review", map[string]string{"decision": "approve"}, &e.admin, "", nil)
+	var key struct {
+		APIKey string `json:"api_key"`
+	}
+	e.call("POST", "/api/apps/"+app.ID+"/keys", nil, &owner, "", &key)
+	e.call("POST", "/api/v1/escrows", map[string]any{"seller": string(dev.addr), "currency": "ORP",
+		"milestones": []map[string]string{{"amount": "5"}}}, nil, key.APIKey, nil)
+	e.call("POST", "/api/v1/checkout", map[string]any{"amount": "3"}, nil, key.APIKey, nil)
+
+	var d struct {
+		Checkouts struct {
+			Pending int `json:"pending"`
+		} `json:"checkouts"`
+		Escrows struct {
+			Awaiting int              `json:"awaiting_funding"`
+			Recent   []map[string]any `json:"recent"`
+		} `json:"escrows"`
+	}
+	if code := e.call("GET", "/api/apps/"+app.ID+"/dashboard", nil, &owner, "", &d); code != 200 {
+		t.Fatalf("owner dashboard: %d", code)
+	}
+	if d.Checkouts.Pending != 1 || d.Escrows.Awaiting != 1 || len(d.Escrows.Recent) != 1 {
+		t.Fatalf("dashboard: %+v", d)
+	}
+	if code := e.call("GET", "/api/apps/"+app.ID+"/dashboard", nil, &stranger, "", nil); code != 404 {
+		t.Errorf("stranger saw dashboard: %d", code)
+	}
+	if code := e.call("GET", "/api/apps/"+app.ID+"/dashboard", nil, &e.admin, "", nil); code != 200 {
+		t.Errorf("admin dashboard: %d", code)
+	}
+}

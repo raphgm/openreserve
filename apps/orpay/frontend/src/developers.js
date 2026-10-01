@@ -1,7 +1,7 @@
 // Developer portal: companies (Gabis, Paynautik, or anyone else) request to
 // use OpenReserve payments, admins review requests, and approved apps manage
 // API keys, webhooks and their settlement address.
-import { api, isAddress, partnerMark } from './orp.js'
+import { api, formatMoney, isAddress, partnerMark } from './orp.js'
 
 let ctx
 
@@ -91,6 +91,8 @@ function appCard(a) {
       ${a.review_note ? `<p class="banner">${ctx.esc(a.review_note)}</p>` : ''}
       ${a.status === 'pending' ? '<p class="muted">Your request is being reviewed. You will be able to create API keys once it is approved.</p>' : ''}
       ${approved ? `
+      <div class="dash" data-dash="${a.id}"><p class="muted small-text">Loading activity…</p></div>
+      <details class="dev-settings"><summary>API keys & settings</summary>
       <div class="stack">
         <div>
           <p class="label">API key</p>
@@ -122,7 +124,8 @@ function appCard(a) {
           <summary>Quick start</summary>
           <pre class="code">${ctx.esc(snippet(a))}</pre>
         </details>
-      </div>` : ''}
+      </div>
+      </details>` : ''}
     </section>`
 }
 
@@ -153,10 +156,45 @@ curl -X POST ${base}/api/v1/escrows \\
 # escrow.refunded, escrow.resolved, escrow.expired`
 }
 
+// Activity at a glance for an approved app: money in, escrows and recent items.
+async function loadDashboard(el, id) {
+  let d
+  try {
+    d = await api.appDashboard(ctx.state.seed, id)
+  } catch (err) {
+    el.innerHTML = `<p class="error small-text">${ctx.esc(err.message)}</p>`
+    return
+  }
+  const sum = (m) => {
+    const parts = Object.entries(m ?? {}).filter(([, v]) => BigInt(v) > 0n).map(([a, v]) => formatMoney(v, a))
+    return parts.length ? parts.join(' + ') : formatMoney(0, 'NGN')
+  }
+  const c = d.checkouts, e = d.escrows
+  const tile = (label, value, note = '') => `<div class="tile"><span>${label}</span><strong>${value}</strong>${note ? `<small>${note}</small>` : ''}</div>`
+  const when = (t) => new Date(t).toLocaleString([], { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
+  const escrowState = (x) => x.escrow?.status ?? x.status
+  el.innerHTML = `
+    <div class="tiles">
+      ${tile('Paid checkouts', sum(c.paid_total), `${c.paid} paid · ${sum(c.paid_this_week)} this week`)}
+      ${tile('Held in escrow', sum(e.held), `${e.open} open · ${e.awaiting_funding} awaiting funding`)}
+      ${tile('Released to sellers', sum(e.released), `${e.completed} completed · ${e.refunded} refunded`)}
+      ${tile('Disputes', String(e.disputed), e.disputed ? 'Needs your arbiter' : 'None open')}
+    </div>
+    ${e.recent?.length ? `<p class="label">Recent escrows</p><ul class="dash-list">${e.recent.map((x) => `
+      <li><span class="who"><strong>${ctx.esc(x.description || x.reference || x.id)}</strong><small>${ctx.esc(x.reference ?? '')} · ${when(x.created_at)}</small></span>
+      <span class="amt">${formatMoney(x.total, x.asset ?? '')}</span>${statusChip(escrowState(x) === 'awaiting_funding' ? 'pending' : escrowState(x) === 'disputed' ? 'suspended' : 'approved').replace(/>[^<]+</, `>${ctx.esc(escrowState(x).replace('_', ' '))}<`)}</li>`).join('')}</ul>` : ''}
+    ${c.recent?.length ? `<p class="label">Recent checkouts</p><ul class="dash-list">${c.recent.map((x) => `
+      <li><span class="who"><strong>${ctx.esc(x.description || x.reference || x.id)}</strong><small>${ctx.esc(x.reference ?? '')} · ${when(x.created_at)}</small></span>
+      <span class="amt">${formatMoney(x.amount, x.asset ?? '')}</span>${statusChip(x.status === 'paid' ? 'approved' : x.status === 'pending' ? 'pending' : 'rejected').replace(/>[^<]+</, `>${x.status}<`)}</li>`).join('')}</ul>` : ''}
+    ${!e.recent?.length && !c.recent?.length ? '<p class="muted small-text">No checkouts or escrows yet. Create one with your API key and it shows up here.</p>' : ''}`
+}
+
 function bindAppCards(apps) {
   for (const a of apps) {
     const card = ctx.$(`[data-app="${a.id}"]`)
     if (!card) continue
+    const dash = card.querySelector('[data-dash]')
+    if (dash) loadDashboard(dash, a.id)
     const keyBtn = card.querySelector('[data-act="key"]')
     if (keyBtn)
       keyBtn.onclick = async () => {

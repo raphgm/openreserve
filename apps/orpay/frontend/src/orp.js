@@ -331,6 +331,7 @@ export const api = {
   requestApp: (seed, body) => signedCall(seed, 'POST', '/api/apps', body),
   reviewApp: (seed, id, decision, note = '') => signedCall(seed, 'POST', `/api/apps/${id}/review`, { decision, note }),
   rotateKey: (seed, id) => signedCall(seed, 'POST', `/api/apps/${id}/keys`),
+  appDashboard: (seed, id) => signedCall(seed, 'GET', `/api/apps/${id}/dashboard`),
   updateApp: (seed, id, body) => signedCall(seed, 'POST', `/api/apps/${id}/settings`, body),
   refreshLogo: (seed, id) => signedCall(seed, 'POST', `/api/apps/${id}/logo`),
   resolve: (username) => call(`/api/users/${encodeURIComponent(username)}`),

@@ -687,3 +687,18 @@ main.wallet { padding-bottom: calc(96px + env(safe-area-inset-bottom)); }
 .autopay-row { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
 .autopay-row label { flex: 1; min-width: 160px; }
 .autopay-row button { width: auto; }
+
+/* Partner dashboard */
+.tiles { display: grid; grid-template-columns: repeat(2, 1fr); gap: 10px; margin: 6px 0 14px; }
+.tile { display: flex; flex-direction: column; gap: 3px; padding: 14px; border-radius: 16px; background: var(--surface-2); }
+.tile span { font-size: .72rem; color: var(--muted); text-transform: uppercase; letter-spacing: .06em; font-weight: 600; }
+.tile strong { font-size: 1.15rem; letter-spacing: -.02em; }
+.tile small { font-size: .75rem; color: var(--muted); }
+.dash-list { list-style: none; padding: 0; margin: 4px 0 12px; }
+.dash-list li { display: flex; align-items: center; gap: 10px; padding: 10px 0; border-top: 1px solid var(--border); }
+.dash-list li:first-child { border-top: 0; }
+.dash-list .who { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.dash-list small { color: var(--muted); font-size: .75rem; }
+.dash-list .amt { font-weight: 700; font-size: .9rem; }
+.dev-settings { margin-top: 6px; }
+.dev-settings > summary { cursor: pointer; font-weight: 600; padding: 8px 0; }

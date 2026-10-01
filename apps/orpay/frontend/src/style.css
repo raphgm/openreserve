@@ -806,3 +806,22 @@ main.narrow { background: var(--surface); }
 .stars button { width: auto; color: #eab308; }
 .arb-list .who small { display: block; }
 .sell-card .row a.button { text-decoration: none; }
+
+/* Slim cards: thinner padding, hairline borders, softer shadows. */
+:root { --radius: 18px; --shadow: 0 1px 2px rgb(15 23 42 / .04), 0 4px 14px -8px rgb(15 23 42 / .1); }
+.card { padding: 16px 18px; border-width: 1px; }
+.card h2 { font-size: 1.02rem; margin-bottom: 6px; }
+.card.balance { padding: 20px 22px; }
+.stack { gap: .7rem; }
+.activity li { padding: 9px 8px; }
+.menu-item { padding: 9px 10px; }
+.mi-ico { width: 34px; height: 34px; border-radius: 11px; }
+.quick-actions i { width: 50px; height: 50px; border-radius: 17px; }
+.tile { padding: 11px 12px; border-radius: 13px; }
+.trust-card { padding: 12px 14px; gap: 9px; border-radius: 14px; }
+.checklist, .terms-box { padding: 10px 12px; border-radius: 12px; }
+.pool-row { padding: 10px 12px; }
+main.wallet { gap: 12px; }
+.card.balance button.ghost { padding: 7px 12px; font-size: .8rem; border-radius: 10px; margin-top: 6px; }
+.card.balance .balance-actions { gap: 6px; }
+.activity .icon { width: 36px; height: 36px; border-radius: 12px; }

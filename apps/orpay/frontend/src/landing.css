@@ -334,3 +334,11 @@ body:has(.lp) { background: #f7f7fc; }
 @media (max-width: 1100px) { .f-float { display: none; } }
 @media (max-width: 520px) { .f-stats b { font-size: 1.25rem; } .lp-final.v2 { padding: 56px 20px 44px; } }
 @media (prefers-reduced-motion: reduce) { .f-float { animation: none; } }
+
+/* Slim cards on the landing page */
+.lp-cards article, .lp-steps li { padding: 20px; border-radius: 18px; box-shadow: 0 0 0 1px var(--line); }
+.lp-trio article { border-radius: 20px; padding-bottom: 20px; }
+.t-visual { height: 160px; padding: 18px 22px; }
+.lp-trio article > i, .lp-trio article > h3, .lp-trio article > p { margin-left: 22px; margin-right: 22px; }
+.lp-track, .lp-flow-card { padding: 20px 22px; border-radius: 20px; }
+.lp-code { padding: 22px; border-radius: 18px; }

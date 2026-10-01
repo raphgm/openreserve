@@ -95,6 +95,7 @@ type server struct {
 	pushes       *jsonstore.Store[map[types.Address]*pushState]
 	phones       *jsonstore.Store[*phoneData]
 	signins      *jsonstore.Store[map[types.Address]*signIn]
+	trust        trustCache
 	sms          SMSSender
 	devOTP       bool
 	vapid        vapidKeys
@@ -281,6 +282,9 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/ajo-invites/{id}/leave", strict(30, 10, reqauth.Signed(s.leaveDraft)))
 	mux.Handle("POST /api/ajo-invites/{id}/order", strict(30, 10, reqauth.Signed(s.orderDraft)))
 	mux.Handle("POST /api/ajo-invites/{id}/started", strict(30, 10, reqauth.Signed(s.startedDraft)))
+
+	// Public trust profiles built from on-chain history.
+	mux.Handle("GET /api/trust/{who}", strict(120, 30, http.HandlerFunc(s.getTrust)))
 
 	// Six-word sign-in (the 24 words remain the offline recovery backup).
 	mux.HandleFunc("GET /api/signin", reqauth.Signed(s.signInStatus))

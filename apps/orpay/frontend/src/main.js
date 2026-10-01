@@ -437,7 +437,7 @@ function renderHeader() {
   if (h.dataset.who !== who || !h.firstChild) {
     h.dataset.who = who
     h.innerHTML = `
-      <span class="logo" aria-label="ORPay"><span class="logo-or">OR</span><span class="logo-pay">Pay</span></span>
+      <a class="logo" href="/?home" aria-label="ORPay home"><span class="logo-or">OR</span><span class="logo-pay">Pay</span></a>
       <span class="net" id="net"></span>
       <a class="chip ghost-chip" href="/explorer.html" target="_blank" rel="noopener" title="Explorer: see every block and transaction" aria-label="Explorer"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg><span>Explorer</span></a>
       <button class="chip" id="me">${who ? `@${esc(who)}` : 'Claim @name'}</button>`
@@ -904,16 +904,20 @@ async function renderGuestCheckout(invoice) {
   try {
     pending = JSON.parse(sessionStorage.getItem(PENDING))
   } catch {}
+  const wantsLanding = new URLSearchParams(location.search).has('home')
   if (pending?.invoice) renderGuestCheckout(pending)
-  else if (hasVault()) renderUnlock()
+  else if (hasVault() && !wantsLanding) renderUnlock()
   else showLanding()
 }
 
+// The public landing page. People who already have a wallet on this device
+// can reach it at /?home or from the logo; its buttons lead to their wallet.
 function showLanding() {
+  const has = hasVault()
   renderLanding(app, {
-    onStart: async () => showBackup(await newSeed()),
-    onSignIn: renderImport,
-    signInLabel: 'Sign in',
+    onStart: has ? () => (state.seed ? renderWallet() : renderUnlock()) : async () => showBackup(await newSeed()),
+    onSignIn: has ? () => (state.seed ? renderWallet() : renderUnlock()) : renderImport,
+    signInLabel: has ? 'Open wallet' : 'Sign in',
   })
   window.scrollTo(0, 0)
 }

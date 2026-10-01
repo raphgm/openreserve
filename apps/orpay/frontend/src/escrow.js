@@ -236,7 +236,7 @@ export async function renderEscrow(id, preloaded, focus) {
     stage('done', 'Escrow funded', `${label(e.buyer)} secured ${money(total(e))} in escrow`, when(e.created_at)),
     stage(shipped ? 'done' : open ? 'active' : 'locked', shipped ? 'Shipped' : 'Awaiting shipment',
       shipped ? `${label(e.seller)} marked it dispatched` : `${label(e.seller)} ships or delivers by ${when(e.ship_by)}`,
-      e.tracking ? trackingLine(e.tracking) : ''),
+      [e.tracking ? trackingLine(e.tracking) : '', req?.delivery ? `<b class="deliv ${req.delivery.state}">${{ delivered: '✓ Delivered', out_for_delivery: 'Out for delivery', in_transit: 'In transit', pre_transit: 'Label created', failed: 'Delivery problem' }[req.delivery.state] ?? ctx.esc(req.delivery.state)}</b>${req.delivery.detail ? ` · ${ctx.esc(req.delivery.detail)}` : ''}` : ''].filter(Boolean).join('<br>')),
     stage(e.released === e.milestones.length || e.status === 'completed' ? 'done' : open && e.status !== 'disputed' ? 'active' : 'locked',
       'Inspected and approved', `${e.released} of ${e.milestones.length} milestones released`,
       shipped && e.status === 'dispatched' ? `Auto-release to seller after ${when(reviewEnds)} if no dispute` : ''),

@@ -55,6 +55,7 @@ type EscrowRequest struct {
 	Kind        string         `json:"kind,omitempty"`        // goods, service, rent
 	Checklist   []string       `json:"checklist,omitempty"`   // buyer confirms each before releasing
 	ArbiterBps  uint32         `json:"arbiter_bps,omitempty"` // arbiter's dispute fee
+	Delivery    *Delivery      `json:"delivery,omitempty"`    // latest courier update
 }
 
 // hookEvent is a webhook waiting to be delivered.
@@ -222,7 +223,7 @@ func (s *server) escrowView(er *EscrowRequest, forApp bool) map[string]any {
 		"ship_by_days": er.ShipByDays, "review_days": er.ReviewDays, "description": er.Description,
 		"status": er.Status, "created_at": er.CreatedAt, "expires_at": er.ExpiresAt,
 		"funding_url": s.publicURL + "/?escrow_request=" + er.ID,
-		"kind":        er.Kind, "checklist": er.Checklist, "arbiter_bps": er.ArbiterBps,
+		"kind":        er.Kind, "checklist": er.Checklist, "arbiter_bps": er.ArbiterBps, "delivery": er.Delivery,
 	}
 	if er.Policy != "" {
 		v["policy"], v["terms_hash"], v["terms_memo"] = er.Policy, er.TermsHash, "terms:"+er.TermsHash

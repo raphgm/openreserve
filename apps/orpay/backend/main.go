@@ -62,6 +62,7 @@ func main() {
 	go s.watchInvoices(*watchInterval)
 	go s.refreshLogos(24 * time.Hour)
 	go s.watchPush(20 * time.Second)
+	go s.watchDeliveries(10 * time.Minute)
 
 	handler := ratelimit.Middleware(ratelimit.New(300, 60), *trustProxy, s.routes(*trustProxy))
 	log.Printf("ORPay backend listening on %s (node %s)", *listen, *nodeURL)
@@ -97,6 +98,7 @@ type server struct {
 	signins      *jsonstore.Store[map[types.Address]*signIn]
 	trust        trustCache
 	arbiters     *jsonstore.Store[map[types.Address]*Arbiter]
+	trackers     map[string]tracker
 	sms          SMSSender
 	devOTP       bool
 	vapid        vapidKeys
@@ -188,6 +190,7 @@ func newServer(cfg serverConfig) (*server, error) {
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
 		hookClient: webhookClient(cfg.privateHooks), phones: phones, signins: signins, arbiters: arbiters, sms: devSMS{}, devOTP: true,
 	}
+	s.trackers = trackersFromEnv(&http.Client{Timeout: 15 * time.Second})
 	if k := os.Getenv("TERMII_API_KEY"); k != "" {
 		sender := os.Getenv("TERMII_SENDER")
 		if sender == "" {
@@ -300,6 +303,9 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/arbiters/apply", strict(10, 3, reqauth.Signed(s.applyArbiter)))
 	mux.Handle("POST /api/arbiters/{addr}/review", strict(30, 10, reqauth.Signed(s.reviewArbiter)))
 	mux.Handle("POST /api/escrows/{id}/rate-arbiter", strict(20, 5, reqauth.Signed(s.rateArbiter)))
+
+	// Courier delivery updates.
+	mux.Handle("POST /api/couriers/{name}/webhook", strict(120, 40, http.HandlerFunc(s.courierWebhook)))
 
 	// Public trust profiles built from on-chain history.
 	mux.Handle("GET /api/trust/{who}", strict(120, 30, http.HandlerFunc(s.getTrust)))

@@ -13,6 +13,7 @@ import { renderLanding } from './landing.js'
 import { openScanner } from './scan.js'
 import { fillTrust, showTrustCard, trustChip, trustOf } from './trust.js'
 import { radarBanner, riskOf } from './radar.js'
+import { COMING, LANGS, getLang, setLang, startI18n } from './i18n.js'
 import { bioEnabled, bioSupported, disableBio, enableBio, unlockBio } from './bio.js'
 import { newSignInWords, parseSignInWords, sealSignIn, signInToken, unsealSignIn } from './signin.js'
 import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './vault.js'
@@ -28,6 +29,7 @@ function applyTheme(t = localStorage.getItem(THEME) ?? 'system') {
 try {
   applyTheme()
 } catch {}
+startI18n()
 
 const state = {
   seed: null,
@@ -156,6 +158,7 @@ function renderProfile() {
     ${item('m-words', '24', 'Recovery words', 'Your offline backup')}
     ${item('m-bio', '☝︎', 'Face ID / fingerprint', bioEnabled() ? 'On: unlock without your password' : 'Unlock without typing your password')}
     ${item('m-notify', '🔔', 'Notifications', 'Payments, ajo turns, escrow updates')}
+    ${item('m-lang', 'Aa', 'Language', LANGS.find((l) => l.id === getLang())?.name ?? 'English')}
     ${item('m-theme', '◐', 'Theme', { system: 'Follows your phone', light: 'Light', dark: 'Dark' }[localStorage.getItem(THEME) ?? 'system'])}
     ${item('m-lock', '⎋', 'Sign out', 'Lock the wallet on this device', 'danger')}
     ${item('m-forget', '✕', 'Remove from this device', 'Needs your six or 24 words to sign in again', 'danger subtle')}
@@ -185,6 +188,12 @@ function renderProfile() {
     } catch (err) {
       if (err.name !== 'NotAllowedError') toast(err.message, 'err')
     }
+  })
+  on('#m-lang', () => {
+    showPanel('Language')
+    $('#panel').innerHTML = `<div class="menu">${LANGS.map((l) => `<button class="menu-item" data-lang="${l.id}"><span class="mi-ico">${l.id === getLang() ? '✓' : ''}</span><span><b>${l.name}</b></span></button>`).join('')}</div>
+      <p class="muted small-text">Coming soon: ${COMING.join(', ')}. We're having native speakers check every word first.</p>`
+    app.querySelectorAll('[data-lang]').forEach((b) => (b.onclick = () => setLang(b.dataset.lang)))
   })
   on('#m-theme', () => {
     const order = ['system', 'light', 'dark']

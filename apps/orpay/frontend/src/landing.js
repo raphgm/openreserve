@@ -157,8 +157,6 @@ export function renderLanding(app, { onStart, onSignIn, signInLabel }) {
 
     <section class="lp-wrap">
       <div class="lp-final v2">
-        <div class="f-float f-left" aria-hidden="true"><span class="f-ico ok">${svg(I.check)}</span><span><b>Escrow released</b><small>iPhone 14 · ₦420,000</small></span></div>
-        <div class="f-float f-right" aria-hidden="true"><span class="f-ico in">${svg(I.down)}</span><span><b>Ajo payout</b><small>+₦60,000 · Round 4</small></span></div>
         <span class="lp-pill dark"><span class="dot on"></span>Live on the OpenReserve network</span>
         <h2>Money you can <span class="lp-grad light">see and trust.</span></h2>
         <p>Start saving with your circle or selling with escrow in under a minute.</p>

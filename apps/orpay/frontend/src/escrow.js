@@ -353,6 +353,7 @@ export async function renderEscrow(id, preloaded, focus) {
   showTerms(history)
   if (role !== 'viewer') bindChat(e.id)
   const split = ctx.$('#split')
+  const net = BigInt(e.balance) - (BigInt(e.balance) * BigInt(e.arbiter_bps ?? 0)) / 10_000n
   root.querySelectorAll('[data-split]').forEach((b) => {
     b.onclick = () => {
       const bal = BigInt(e.balance) - (BigInt(e.balance) * BigInt(e.arbiter_bps ?? 0)) / 10_000n
@@ -365,7 +366,7 @@ export async function renderEscrow(id, preloaded, focus) {
     split.oninput = () => {
       try {
         const v = parseAmount(split.value || '0')
-        ctx.$('#split-hint').textContent = v > BigInt(e.balance) ? 'More than the escrow holds.' : `Buyer gets ${money(BigInt(e.balance) - v)} back.`
+        ctx.$('#split-hint').textContent = v > net ? 'More than the escrow holds after the fee.' : `Buyer gets ${money(net - v)} back.`
       } catch {
         ctx.$('#split-hint').textContent = 'Enter an amount.'
       }

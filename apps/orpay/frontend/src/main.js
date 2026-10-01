@@ -10,6 +10,7 @@ import { initDevelopers, renderDevelopers } from './developers.js'
 import { confirmDeposit, initMoney, renderAddMoney, renderWithdraw } from './money.js'
 import { initEscrow, renderEscrow, renderEscrows, renderFundRequest } from './escrow.js'
 import { renderLanding } from './landing.js'
+import { newSignInWords, parseSignInWords, sealSignIn, signInToken, unsealSignIn } from './signin.js'
 import { clearVault, hasVault, saveVault, unlockVault, vaultAddress } from './vault.js'
 
 const app = document.getElementById('app')
@@ -76,11 +77,105 @@ function renderWelcome() {
       <p class="muted">Send ORP to anyone by @username. Your keys stay on this device.</p>
       <div class="stack">
         <button class="primary" id="create">Create a wallet</button>
-        <button class="ghost" id="import">Restore with recovery words</button>
+        <button class="ghost" id="import">Sign in</button>
       </div>
     </main>`
   $('#create').onclick = async () => showBackup(await newSeed())
-  $('#import').onclick = renderImport
+  $('#import').onclick = renderSignIn
+}
+
+// Sign in on this device with @username and six words. The 24 recovery
+// words are the fallback if the six are lost.
+function renderSignIn() {
+  app.innerHTML = `
+    <main class="narrow">
+      <button class="link back" id="back">← Back</button>
+      <h1>Sign in</h1>
+      <p class="muted">Use your @username and your six sign-in words.</p>
+      <form id="f" class="stack" autocomplete="off">
+        <label>Username<input id="user" placeholder="@yourname" autocapitalize="none" spellcheck="false" required></label>
+        <label>Six sign-in words<textarea id="words" rows="2" spellcheck="false" autocapitalize="none" placeholder="e.g. river panel ocean sugar actor midnight" required></textarea></label>
+        <p class="error" id="err"></p>
+        <button class="primary" id="go">Sign in</button>
+      </form>
+      <button class="link" id="recover">Lost your six words? Recover with your 24 recovery words</button>
+    </main>`
+  $('#back').onclick = () => (hasVault() ? renderUnlock() : showLanding())
+  $('#recover').onclick = renderImport
+  $('#f').onsubmit = async (e) => {
+    e.preventDefault()
+    $('#err').textContent = ''
+    const go = $('#go')
+    go.disabled = true
+    go.textContent = 'Signing in…'
+    try {
+      const user = $('#user').value.trim().replace(/^@/, '').toLowerCase()
+      const words = parseSignInWords($('#words').value)
+      const { salt } = await api.signInSalt(user)
+      const sealed = await api.signInOpen(user, await signInToken(words, salt))
+      const seed = await unsealSignIn(words, sealed)
+      if ((await addressOf(seed)) !== sealed.address) throw new Error('Those words do not match this wallet')
+      renderSetPassword(seed)
+    } catch (err) {
+      $('#err').textContent = err.message
+      go.disabled = false
+      go.textContent = 'Sign in'
+    }
+  }
+}
+
+// Turn on six-word sign-in from Wallet settings.
+async function renderSignInSetup() {
+  showPanel('Six-word sign-in')
+  const panel = $('#panel')
+  if (!state.username) {
+    panel.innerHTML = '<p class="muted">Claim a @username first: you sign in with your @username and six words.</p><button class="primary" id="claim">Claim a username</button>'
+    $('#claim').onclick = renderClaim
+    return
+  }
+  let on = false
+  try {
+    on = (await api.signInStatus(state.seed)).enabled
+  } catch {}
+  const intro = `<p class="muted">Open your wallet on any phone or computer with <b>@${esc(state.username)}</b> and six words. Your 24 recovery words stay your backup if you ever lose these.</p>`
+  if (on) {
+    panel.innerHTML = `${intro}<p class="banner ok">Six-word sign-in is on.</p>
+      <div class="row"><button class="ghost" id="renew">Get new words</button><button class="danger" id="off">Turn off</button></div><p class="error" id="err"></p>`
+    $('#renew').onclick = () => showSignInWords()
+    $('#off').onclick = async () => {
+      if (!confirm('Turn off six-word sign-in? You will need your 24 recovery words on new devices.')) return
+      await api.deleteSignIn(state.seed).catch((err) => ($('#err').textContent = err.message))
+      renderSignInSetup()
+    }
+    return
+  }
+  panel.innerHTML = `${intro}<button class="primary" id="start">Set up six-word sign-in</button>`
+  $('#start').onclick = () => showSignInWords()
+}
+
+function showSignInWords() {
+  const words = newSignInWords()
+  $('#panel').innerHTML = `
+    <p class="muted">Write these six words down, in order. Anyone with them and your @username can open your wallet, so keep them private.</p>
+    <ol class="words six">${words.map((w) => `<li>${w}</li>`).join('')}</ol>
+    <label class="check"><input type="checkbox" id="saved"> I wrote down all six words</label>
+    <p class="error" id="err"></p>
+    <button class="primary" id="save" disabled>Turn on six-word sign-in</button>`
+  $('#saved').onchange = (e) => ($('#save').disabled = !e.target.checked)
+  $('#save').onclick = async () => {
+    const b = $('#save')
+    b.disabled = true
+    b.textContent = 'Securing…'
+    try {
+      await api.setSignIn(state.seed, await sealSignIn(state.seed, words))
+      toast('Six-word sign-in is on')
+      renderSignInSetup()
+    } catch (err) {
+      $('#err').textContent = err.message
+      b.disabled = false
+      b.textContent = 'Turn on six-word sign-in'
+    }
+  }
 }
 
 function wordGrid(seed) {
@@ -106,7 +201,7 @@ function renderImport() {
   app.innerHTML = `
     <main class="narrow">
       <button class="link back" id="back">← Back</button>
-      <h1>Restore wallet</h1>
+      <h1>Recover with 24 words</h1>
       <form id="f" class="stack">
         <label>Recovery words<textarea id="key" rows="4" spellcheck="false" autocomplete="off" autocapitalize="none" placeholder="24 words separated by spaces"></textarea></label>
         <p class="error" id="err"></p>
@@ -186,7 +281,7 @@ function renderUnlock() {
     $('#eye').textContent = show ? 'Hide' : 'Show'
     $('#eye').setAttribute('aria-label', show ? 'Hide password' : 'Show password')
   }
-  $('#restore').onclick = renderImport
+  $('#restore').onclick = renderSignIn
   $('#forget').onclick = () => {
     if (confirm('Remove this wallet from this device? You can only get it back with its recovery key.')) {
       clearVault()
@@ -681,6 +776,7 @@ function renderReceive() {
       <details>
         <summary>Wallet settings</summary>
         <div class="stack">
+          <button class="ghost small" id="sixwords">Six-word sign-in</button>
           <button class="ghost small" id="reveal">Show recovery words</button>
           <button class="ghost small" id="notify">Notify me about incoming payments</button>
           <button class="danger small" id="lock">Lock wallet</button>
@@ -718,6 +814,7 @@ function renderReceive() {
   }
   $('#copy-addr').onclick = () => navigator.clipboard.writeText(state.address).then(() => toast('Address copied'))
   if ($('#claim')) $('#claim').onclick = renderClaim
+  $('#sixwords').onclick = renderSignInSetup
   $('#reveal').onclick = (e) => {
     if (confirm('Show your recovery words? Make sure nobody can see your screen.')) e.target.outerHTML = wordGrid(state.seed)
   }
@@ -961,7 +1058,7 @@ function showLanding() {
   const has = hasVault()
   renderLanding(app, {
     onStart: has ? openSaved : async () => showBackup(await newSeed()),
-    onSignIn: has ? openSaved : renderImport,
+    onSignIn: has ? openSaved : renderSignIn,
     signInLabel: has ? 'Open wallet' : 'Sign in',
   })
   window.scrollTo(0, 0)

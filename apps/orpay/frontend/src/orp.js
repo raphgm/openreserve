@@ -309,6 +309,11 @@ async function signedCall(seed, method, path, body) {
 
 export const api = {
   pushKey: () => call('/api/push/key'),
+  signInStatus: (seed) => signedCall(seed, 'GET', '/api/signin'),
+  setSignIn: (seed, data) => signedCall(seed, 'POST', '/api/signin', data),
+  deleteSignIn: (seed) => signedCall(seed, 'DELETE', '/api/signin'),
+  signInSalt: (username) => call('/api/signin/salt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username }) }),
+  signInOpen: (username, auth) => call('/api/signin/open', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username, auth }) }),
   pushSubscribe: (seed, sub) => signedCall(seed, 'POST', '/api/push/subscribe', sub),
   pushUnsubscribe: (seed, endpoint) => signedCall(seed, 'POST', '/api/push/unsubscribe', { endpoint }),
   invites: (seed) => signedCall(seed, 'GET', '/api/ajo-invites'),

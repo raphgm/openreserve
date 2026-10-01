@@ -94,6 +94,7 @@ type server struct {
 	drafts       *jsonstore.Store[map[string]*PoolDraft]
 	pushes       *jsonstore.Store[map[types.Address]*pushState]
 	phones       *jsonstore.Store[*phoneData]
+	signins      *jsonstore.Store[map[types.Address]*signIn]
 	sms          SMSSender
 	devOTP       bool
 	vapid        vapidKeys
@@ -163,6 +164,10 @@ func newServer(cfg serverConfig) (*server, error) {
 		}
 		return nil
 	})
+	signins, err := jsonstore.Open(filepath.Join(cfg.stateDir, "orpay-signin.json"), map[types.Address]*signIn{})
+	if err != nil {
+		return nil, err
+	}
 	vapid, err := loadVAPID(cfg.stateDir)
 	if err != nil {
 		return nil, err
@@ -175,7 +180,7 @@ func newServer(cfg serverConfig) (*server, error) {
 		terms: terms, chats: chats, secret: secret, drafts: drafts, pushes: pushes, vapid: vapid,
 		dir: dir, node: cfg.node, invoices: invoices, apps: apps, escrows: escrows, now: time.Now, stateDir: cfg.stateDir,
 		publicURL: strings.TrimRight(cfg.publicURL, "/"), privateHooks: cfg.privateHooks,
-		hookClient: webhookClient(cfg.privateHooks), phones: phones, sms: devSMS{}, devOTP: true,
+		hookClient: webhookClient(cfg.privateHooks), phones: phones, signins: signins, sms: devSMS{}, devOTP: true,
 	}
 	if k := os.Getenv("TERMII_API_KEY"); k != "" {
 		sender := os.Getenv("TERMII_SENDER")
@@ -275,6 +280,13 @@ func (s *server) routes(trustProxy bool) http.Handler {
 	mux.Handle("POST /api/ajo-invites/{id}/leave", strict(30, 10, reqauth.Signed(s.leaveDraft)))
 	mux.Handle("POST /api/ajo-invites/{id}/order", strict(30, 10, reqauth.Signed(s.orderDraft)))
 	mux.Handle("POST /api/ajo-invites/{id}/started", strict(30, 10, reqauth.Signed(s.startedDraft)))
+
+	// Six-word sign-in (the 24 words remain the offline recovery backup).
+	mux.HandleFunc("GET /api/signin", reqauth.Signed(s.signInStatus))
+	mux.Handle("POST /api/signin", strict(10, 3, reqauth.Signed(s.setSignIn)))
+	mux.Handle("DELETE /api/signin", strict(10, 3, reqauth.Signed(s.deleteSignIn)))
+	mux.Handle("POST /api/signin/salt", strict(20, 5, http.HandlerFunc(s.signInSalt)))
+	mux.Handle("POST /api/signin/open", strict(30, 8, http.HandlerFunc(s.openSignIn)))
 
 	// Phone numbers and guardian recovery.
 	mux.Handle("POST /api/phone/link", strict(10, 3, reqauth.Signed(s.startLink)))

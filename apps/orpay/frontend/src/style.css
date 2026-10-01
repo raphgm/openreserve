@@ -631,3 +631,5 @@ li.empty small { color: var(--muted); }
 button.pulse { animation: btn-pulse 1.6s ease-in-out 3; }
 @keyframes btn-pulse { 50% { box-shadow: 0 0 0 6px rgb(79 70 229 / .25); } }
 a.logo { text-decoration: none; color: inherit; }
+.words.six { grid-template-columns: repeat(3, 1fr); }
+.banner.ok { background: var(--in-bg); color: var(--in); }

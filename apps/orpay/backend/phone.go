@@ -368,6 +368,8 @@ func (s *server) migrateIdentity(w http.ResponseWriter, r *http.Request) {
 		}
 		return nil
 	})
+	// The old six-word sign-in held the old key; it must be set up again.
+	s.signins.Update(func(m map[types.Address]*signIn) error { delete(m, req.Old); return nil })
 	var moved string
 	s.dir.store.Update(func(users map[string]types.Address) error {
 		if name, ok := s.dir.byAddr[req.Old]; ok {
